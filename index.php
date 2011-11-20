@@ -2,6 +2,28 @@
 session_start();
 include "mysql.php";
 
+// Scheduled Tasks
+if(PHP_SAPI === 'cli'){
+   if(in_array('-clean', $argv)){
+      $mysql_wait = 120;
+
+      if(mysql_("DELETE FROM scu_users WHERE SID not like 'record %' AND SID not like 'AI:%'"))
+         echo "Abrupt users cleaned: ".mysql_affected_rows()."\n";
+      else
+         echo mysql_error()."\n";
+
+      if(mysql_("DELETE FROM scu_games WHERE Players not like 'record %'"))
+         echo "Abrupt games cleaned: ".mysql_affected_rows()."\n";
+      else
+         echo mysql_error()."\n";
+
+      sleep(5);
+   }
+
+   exit;
+}
+//End of Scheduled Tasks
+
 // Session Management - Start
 session:
 if( isset($_REQUEST['clear'])){
@@ -11,7 +33,7 @@ if( isset($_REQUEST['clear'])){
       mysql_("DELETE FROM scu_games WHERE Players like '".session_id()."%'");
       mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".session_id()."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE LOCATE('".session_id()."', Players)>0");
    }
-   
+
    exit("Success");
 }
 if(!isset($_COOKIE['username'])){
@@ -30,6 +52,7 @@ if(!isset($_COOKIE['username'])){
 mysql_("INSERT INTO scu_users (SID, Name) VALUES ('".session_id()."', '".$_COOKIE['username']."')");
 // Session Management - End
 
+
 // JS->PHP->MySQL
 js_php_mysql:
 if(isset($_REQUEST['logout'])){
@@ -44,6 +67,26 @@ if(isset($_REQUEST['create'], $_REQUEST['game'])){
    setcookie("gamename", $_REQUEST['game'],  time()+ 30*24*60*60);
    setcookie("rules",    $_REQUEST['rules'], time()+ 30*24*60*60);
    echo '<script type="text/javascript">window.location.href="?"</script>';
+   exit;
+}
+if(isset($_REQUEST['availableGames'])){
+   $game = mysql_("SELECT game.GameName, '/', SUBSTRING_INDEX(game.Players, ',', 1), '(', players.Name, ')' FROM scu_games as game, scu_users as players WHERE game.Players like CONCAT(players.SID, '%') AND (game.Turns is NULL OR game.Turns not like '0:0%')", MYSQL_NUM|MYSQL_TABLE);
+   if(!$game) exit;
+
+   foreach($game as $g)
+      $games[] = join($g);
+
+   echo join(",", $games);
+   exit;
+}
+if(isset($_REQUEST['playedGames'])){
+   $game = mysql_("SELECT game.GameName, '/', SUBSTRING_INDEX(game.Players, ',', 1), '(', players.Name, ')' FROM scu_games as game, scu_users as players WHERE (players.SID = game.Players OR game.Players like CONCAT('%', players.SID, ',%')) AND (game.Turns is not NULL AND game.Turns like '0:0%')", MYSQL_NUM|MYSQL_TABLE);
+   if(!$game) exit;
+
+   foreach($game as $g)
+      $games[] = join($g);
+
+   echo join(",", $games);
    exit;
 }
 if(isset($_REQUEST['join'])){
@@ -65,8 +108,8 @@ if(isset($_REQUEST['join'])){
       }
       // If You are explicitly banned
       if($specified == "!".$_COOKIE['username']){
-      	$allowed = false;
-      	break;
+         $allowed = false;
+         break;
       }
       // If there is a player limit on the game
       if( in_array(substr($specified, 0, 1), array("<", "=")) ){
@@ -75,23 +118,30 @@ if(isset($_REQUEST['join'])){
          $goal = (int)substr($specified, 1);
 
          if( ($sign=="<" && $cur+1 >= $goal) || ($sign=="=" && $cur >= $goal) ){
-         	$allowed = false;
-         	break;
+            $allowed = false;
+            break;
          }
       }
+   }
+
+   if(isset($_REQUEST['ai'])){
+      if(session_id() != $_REQUEST['join'])
+         exit("Only the Host may add AI Players");
+
+      $ai = "AI:Easy"; //Change naming when other difficulties are available
    }
 
    $marks = array("X", "O", "Z", "V", "A", "H", "N", "P", "I", "J", "Y", "T", "D", "W", "S", "E", "K", "M", "R", "F", "Q", "B", "G", "L", "U", "C");
 
    if($allowed)
       mysql_("UPDATE scu_games SET".
-         " Players=CONCAT(Players, ',".session_id()."'),".
+         " Players=CONCAT(Players, ',".(isset($_REQUEST['ai'])? $ai : session_id())."'),".
          " Marks=CONCAT(Marks, ',".$marks[count(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".$_REQUEST['join']."%'")))]."') ".
          "WHERE Players LIKE '".$_REQUEST['join']."%'"
       );
    else
       echo '<script type="text/javascript">alert("Sorry, you are not allowed to this game.");</script>'."\n";
-      
+
    echo '<script type="text/javascript">window.location.href="?";</script>';
    exit;
 }
@@ -106,7 +156,15 @@ if(isset($_REQUEST['update'])){
    }
 }
 if(isset($_REQUEST['kick'])){
-   mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".$_REQUEST['kick']."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE Players LIKE '".session_id()."%'");
+   if(!is_numeric($_REQUEST['kick']))
+      mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".$_REQUEST['kick']."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE Players LIKE '".session_id()."%'");
+   else{
+      $players = explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"));
+      unset($players[$_REQUEST['kick']+1]);
+      $players = join(",", $players);
+
+      mysql_("UPDATE scu_games SET Players='".$players."', Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE Players LIKE '".session_id()."%'");
+   }
    exit;
 }
 if(isset($_REQUEST['promote'])){
@@ -116,81 +174,16 @@ if(isset($_REQUEST['promote'])){
 if(isset($_REQUEST['start'])){
    mysql_("UPDATE scu_games SET Turns='0:0' WHERE Players LIKE '".session_id().",%' AND Turns IS NULL");
 
-   echo '<script type="text/javascript">window.location.href="?";</script>';
-   exit;
-}
-if(isset($_REQUEST['availableGames'])){
-   $game = mysql_("SELECT game.GameName, '/', LEFT(game.Players, 26), '(', players.Name, ')' FROM scu_games as game, scu_users as players WHERE game.Players like CONCAT(players.SID, '%') AND (game.Turns is NULL OR game.Turns not like '0:0%')", MYSQL_NUM|MYSQL_TABLE);
-   if(!$game) exit;
+   //If it's AI's turn next, perform the move
+   if(stripos(" ".next(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"))), "AI:")){
+      $GLOBALS['ai'] = true;
+      $_REQUEST['m'] = "0:0";
 
-   foreach($game as $g)
-   	$games[] = join($g);
-   	
-   echo join(",", $games);
-   exit;
-}
-if(isset($_REQUEST['playedGames'])){
-   $game = mysql_("SELECT game.GameName, '/', game.Players, '(', players.Name, ')' FROM scu_games as game, scu_users as players WHERE players.SID like CONCAT(game.Players, '%') AND (game.Turns is not NULL AND game.Turns like '0:0%')", MYSQL_NUM|MYSQL_TABLE);
-   if(!$game) exit;
-   
-   foreach($game as $g)
-   	$games[] = join($g);
-   	
-   echo join(",", $games);
-   exit;
-}
-if(isset($_REQUEST['record'])){
-   $records = mysql_("SELECT SID FROM scu_users WHERE SID like 'record%'", true) or die();
-   $players = mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%' AND Players like '%,%'") or die();
-
-   $players = explode(",", $players);
-   foreach($players as $key => $sid){
-   	$players[$key] = mysql_("SELECT Name FROM scu_users WHERE SID='".$sid."'");
-
-   	if(isset($_REQUEST['winner']) && $_REQUEST['winner'] == $key)
-   	  $players[$key] .= "*";
+      include "ai.php";
+      mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$chosen."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$chosen."%'");
    }
-   $players = join(" vs ", $players);
 
-   mysql_("INSERT INTO scu_users VALUES ( 'record ".$records."', '".$players."')") or die();
-   mysql_("UPDATE scu_games SET Players = 'record ".$records."' WHERE Players like '%".session_id()."%'") or die();
-
-   exit("Success");
-}
-if(isset($_REQUEST['players'])){
-   $players = mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%'", MYSQL_NUM);
-
-   $player  = explode(",", $players);
-   $players = array();
-   
-   foreach($player as $sid)
-      $players[] = $sid."(".mysql_("SELECT Name FROM scu_users WHERE SID='".$sid."'").")";
-      
-   echo join(",", $players);
-   exit;
-}
-if(isset($_REQUEST['mark'])){
-   if($_REQUEST['mark']=='0:0')
-      exit("Initial Repeatance");
-
-   $game = mysql_("SELECT Players, Turns, Marks FROM scu_games WHERE Players like '%".session_id()."%'");
-   $onTurn = (count(explode(",", $game['Turns'])) % count(explode(",", $game['Marks']))) +1;
-   $myTurn = array_search(session_id(), explode(",", $game['Players'])) +1;
-
-   if($onTurn != $myTurn)
-      exit("Cheat!");
-
-   mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$_REQUEST['mark']."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$_REQUEST['mark']."%'");
-   exit("Success");
-}
-if(isset($_REQUEST['turn'])){
-   $saughtPlayer = isset($_REQUEST['host'])? $_REQUEST['host'] : session_id();
-   $moves = mysql_("SELECT Turns FROM scu_games WHERE Players like '%".$saughtPlayer."%'");
-
-   $e = explode(",", $moves);
-
-   if(isset($e[$_REQUEST['turn']-1]))
-      echo  $e[$_REQUEST['turn']-1];
+   echo '<script type="text/javascript">window.location.href="?";</script>';
    exit;
 }
 if(isset($_REQUEST['status'])){
@@ -208,15 +201,124 @@ if(isset($_REQUEST['status'])){
 
    exit; // exit("normal");
 }
-if(isset($_REQUEST['rename'], $_REQUEST['to'])){
-   //Stop if such name already exists
-   if(mysql_("SELECT GameName FROM scu_games WHERE GameName='".$_REQUEST['to']."'", true))
-      exit("Wanted name already exists!<br /><a href='?'>Home</a>");
+if(isset($_REQUEST['players'])){
+   $players = mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%'", MYSQL_NUM);
 
-   mysql_("UPDATE scu_games SET GameName='".$_REQUEST['to']."' WHERE GameName='".$_REQUEST['rename']."'");
-   echo '<script type="text/javascript">window.location.href="?"</script>';
+   $player  = explode(",", $players);
+   $players = array();
+
+   foreach($player as $sid)
+      $players[] = $sid."(".mysql_("SELECT Name FROM scu_users WHERE SID='".$sid."'").")";
+
+   echo join(",", $players);
    exit;
 }
+if(isset($_REQUEST['mark'])){
+   if($_REQUEST['mark']=='0:0')
+      exit("Initial Repeatance");
+
+   $game    = mysql_("SELECT Players, Turns, Marks FROM scu_games WHERE Players like '%".session_id()."%'");
+   $onTurn  = (count(explode(",", $game['Turns'])) % count(explode(",", $game['Marks'])));
+   $players = explode(",", $game['Players']);
+
+   if($players[$onTurn] != session_id())
+      exit("Cheat!");
+
+   mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$_REQUEST['mark']."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$_REQUEST['mark']."%'");
+   echo "Success";
+
+
+   //If it's AI's turn next, perform the move
+   if(stripos(" ".$game['Players'], "AI:")){
+      $n = ($onTurn+1) % count(explode(",", $game['Marks']));
+
+      if(stripos(" ".$players[$n], "AI:")){
+
+         $GLOBALS['ai'] = $n;
+         $_REQUEST['m'] = mysql_("SELECT Turns FROM scu_games WHERE Players LIKE '%".session_id()."%'");
+         unset($players);
+
+         include "ai.php";
+         mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$chosen."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$chosen."%'");
+      }
+   }
+
+   exit;
+}
+if(isset($_REQUEST['turn'])){
+   $saughtPlayer = isset($_REQUEST['host'])? $_REQUEST['host'] : session_id();
+   $moves = mysql_("SELECT Turns FROM scu_games WHERE Players like '%".$saughtPlayer."%'");
+
+   $e = explode(",", $moves);
+
+   if(isset($e[$_REQUEST['turn']-1]))
+      echo  $e[$_REQUEST['turn']-1];
+   exit;
+}
+if(isset($_REQUEST['myturn'])){
+   $a = max(0, ((int)$_REQUEST['myturn'])-1 );
+   $players = explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%'"));
+//var_dump($a,$players);
+   //Do a manual search because array_search has no offset option
+   for($i=$a; $i<count($players); $i++)
+      if($players[$i] == session_id())
+         echo $i+1, die();
+   //If no result yet, check before the offset
+   for($j=0; $j<$a; $j++)
+      if($players[$j] == session_id())
+         echo $j+1, die();
+
+   exit;
+}
+if(isset($_REQUEST['record'])){
+   $records = mysql_("SELECT SID FROM scu_users WHERE SID like 'record%'", true);
+   $players = mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%' AND Players like '%,%'") or die("Failure!");
+
+   $players = explode(",", $players);
+   foreach($players as $key => $sid){
+      $players[$key] = mysql_("SELECT Name FROM scu_users WHERE SID='".$sid."'");
+
+      if(isset($_REQUEST['winner']) && $_REQUEST['winner'] == $key)
+        $players[$key] .= "*";
+   }
+   $players = join(" vs ", $players);
+
+   mysql_("INSERT INTO scu_users VALUES ( 'record ".$records."', '".$players."')") or die();
+   mysql_("UPDATE scu_games SET Players = 'record ".$records."' WHERE Players like '%".session_id()."%'") or die();
+
+   //Expected that $_REQUEST['rename'] would come!
+   if(!isset($_REQUEST['rename'], $_REQUEST['to']))
+      exit("Success");
+   else
+      $_REQUEST['rename'] = mysql_("SELECT GameName FROM scu_games WHERE Players = 'record ".$records."'");
+}
+if(isset($_REQUEST['rename'], $_REQUEST['to'])){
+   //Host only permission
+   if(!isset($_REQUEST['record']) && $_SERVER['REMOTE_ADDR'] != '127.0.0.1')
+      exit("Permission Denied!");
+
+   //Clean the variables from injection attempts
+   $_REQUEST['to'] = preg_replace('/[^a-zA-Zà-ÿÀ-ß0-9_\ \-\.,\?!:\=]/', '', $_REQUEST['to']);
+   $_REQUEST['rename'] = preg_replace('/[^a-zA-Zà-ÿÀ-ß0-9_\ \-\.,\?!:\=]/', '', $_REQUEST['rename']);
+
+   //Stop if such name already exists
+   if(mysql_("SELECT GameName FROM scu_games WHERE GameName='".$_REQUEST['to']."'", true)){
+      echo "Wanted name already exists!";
+
+      if(!isset($_REQUEST['record']))
+         echo "<br /><a href='?'>Home</a>";
+
+      exit;
+   }
+
+   mysql_("UPDATE scu_games SET GameName='".$_REQUEST['to']."' WHERE GameName='".$_REQUEST['rename']."'");
+
+   if(!isset($_REQUEST['record']))
+      echo '<script type="text/javascript">window.location.href="?"</script>';
+
+   exit("Success");
+}
+
 
 //Javascript
 js:
@@ -236,7 +338,7 @@ if(isset($_REQUEST['js'])){
       echo '      return false;'."\n";
       echo "\n";
       echo "\n";
-      echo '   if(callback!=null)'."\n";
+      echo '   if(typeof callback != "boolean" && callback!=null)'."\n";
       echo '      xh.onreadystatechange = function(){'."\n";
       echo '         if (this.readyState==4 && this.status==200)'."\n";
       echo '            callback(this.responseText);'."\n";
@@ -287,7 +389,7 @@ if(isset($_REQUEST['js'])){
       echo '      sby = -12;                                       // sby /Scroll By (Y)/'."\n";
       echo "\n";
       echo '  //If the Cell clicked is:'."\n";
-      echo '	//The Last Cell on the Left'."\n";
+      echo '   //The Last Cell on the Left'."\n";
       echo '   if(x(elem.id)==x(leftMost)){'."\n";
       echo '      for(i=0;i<table.rows.length;i++){'."\n";
       echo '         cell = document.createElement("td");'."\n";
@@ -295,7 +397,7 @@ if(isset($_REQUEST['js'])){
       echo '         cell.className = "game cell";'."\n";
       echo '         cell.id = (x(leftMost)-1)+":"+(y(topMost)-i);'."\n";
       echo "\n";
-      echo '      	document.getElementById(":"+(y(topMost)-i)).insertBefore(cell, document.getElementById(":"+(y(topMost)-i)).firstChild);'."\n";
+      echo '         document.getElementById(":"+(y(topMost)-i)).insertBefore(cell, document.getElementById(":"+(y(topMost)-i)).firstChild);'."\n";
       echo '      }'."\n";
       echo "\n";
       echo '      leftMost = cell.id;'."\n";
@@ -307,7 +409,7 @@ if(isset($_REQUEST['js'])){
       echo '      }'."\n";
       echo '   }'."\n";
       echo "\n";
-      echo '	//The Last Cell on the Right'."\n";
+      echo '   //The Last Cell on the Right'."\n";
       echo '   if(x(elem.id)==x(rightMost)){'."\n";
       echo '      for(i=0;i<table.rows.length;i++){'."\n";
       echo '         cell = document.createElement("td");'."\n";
@@ -315,7 +417,7 @@ if(isset($_REQUEST['js'])){
       echo '         cell.className = "game cell";'."\n";
       echo '         cell.id = (x(rightMost)-(-1))+":"+(y(topMost)-i);'."\n";
       echo "\n";
-      echo '      	document.getElementById(":"+(y(topMost)-i)).appendChild(cell);'."\n";
+      echo '         document.getElementById(":"+(y(topMost)-i)).appendChild(cell);'."\n";
       echo '      }'."\n";
       echo "\n";
       echo '      rightMost = cell.id;'."\n";
@@ -341,7 +443,7 @@ if(isset($_REQUEST['js'])){
       echo '         cell.className = "game cell";'."\n";
       echo '         cell.id = (x(leftMost)-(-i))+":"+(y(topMost)-(-1));'."\n";
       echo "\n";
-      echo '      	row.appendChild(cell);'."\n";
+      echo '         row.appendChild(cell);'."\n";
       echo '      }'."\n";
       echo "\n";
       echo '      topMost = cell.id;'."\n";
@@ -352,7 +454,7 @@ if(isset($_REQUEST['js'])){
       echo '      }'."\n";
       echo '   }'."\n";
       echo "\n";
-      echo '	//The Last Cell on the Bottom'."\n";
+      echo '   //The Last Cell on the Bottom'."\n";
       echo '   if(y(elem.id)==y(bottomMost)){'."\n";
       echo '      cells = table.rows[0].cells.length;'."\n";
       echo "\n";
@@ -366,7 +468,7 @@ if(isset($_REQUEST['js'])){
       echo '         cell.className = "game cell";'."\n";
       echo '         cell.id = (x(leftMost)-(-i))+":"+(y(bottomMost)-1);'."\n";
       echo "\n";
-      echo '      	row.appendChild(cell);'."\n";
+      echo '         row.appendChild(cell);'."\n";
       echo '      }'."\n";
       echo "\n";
       echo '      bottomMost = cell.id;'."\n";
@@ -386,7 +488,7 @@ if(isset($_REQUEST['js'])){
       echo "\n";
       echo 'function mark(elem, myAttempt){'."\n";
       echo '   //If the game is over or is not your turn, stop'."\n";
-      echo '   if(gameOver) return;'."\n";                
+      echo '   if(gameOver) return;'."\n";
       echo '   if(myAttempt && curTurn != myTurn) return false;'."\n";
       echo '   if(myAttempt && inProgress) return false;'."\n";
       echo "\n";
@@ -394,6 +496,7 @@ if(isset($_REQUEST['js'])){
       echo '   if(typeof elem == "string") elem = document.getElementById(elem);'."\n";
       echo "\n";
       echo '   // If not in progress and call did not returned "Success", stop'."\n";
+      echo '   if(hasAI && !observer) document.getElementById("notice").innerHTML = "<big>Loading...</big>";'."\n";
       echo '   if(!(inProgress || call("?mark="+elem.id, true) == "Success")) return false;'."\n";
       echo "\n";
       echo '   // Maintain the Game Grid to proper size'."\n";
@@ -401,18 +504,18 @@ if(isset($_REQUEST['js'])){
       echo "\n";
       echo '   //Display adjecent cells where needed'."\n";
       echo '   // i==(xOffset), j==(yOffset)'."\n";
-      echo '	for(i=-1;i<=1;i++)'."\n";
-      echo '	   for(j=-1;j<=1;j++){'."\n";
-      echo '	      cell = document.getElementById( (x(elem.id)-(-i))+":"+(y(elem.id)-(-j)) );'."\n";
+      echo '   for(i=-1;i<=1;i++)'."\n";
+      echo '      for(j=-1;j<=1;j++){'."\n";
+      echo '         cell = document.getElementById( (x(elem.id)-(-i))+":"+(y(elem.id)-(-j)) );'."\n";
       echo "\n";
       echo '         if(cell.className.indexOf("available")!=-1)'."\n";
       echo '            continue;'."\n";
       echo "\n";
-      echo '	      cell.className += " available";'."\n";
+      echo '         cell.className += " available";'."\n";
       echo '         if(!observer){'."\n";
-      echo '	        cell.setAttribute("onclick",     "mark(this, true);");'."\n";
-      echo '	        cell.setAttribute("onmouseover", "highlight(this);");'."\n";
-      echo '	        cell.setAttribute("onmouseout",  "unhighlight(this);");'."\n";
+      echo '           cell.setAttribute("onclick",     "mark(this, true);");'."\n";
+      echo '           cell.setAttribute("onmouseover", "highlight(this);");'."\n";
+      echo '           cell.setAttribute("onmouseout",  "unhighlight(this);");'."\n";
       echo '         }'."\n";
       echo '      }'."\n";
       echo "\n";
@@ -433,6 +536,12 @@ if(isset($_REQUEST['js'])){
       echo '   curTurn = (curTurn % marks.length)-(-1);'."\n";
       echo '   turns++;'."\n";
       echo "\n";
+      echo '   //Handle multiple instances of one player'."\n";
+      echo '   if(!observer){'."\n";
+      echo '      myTurn = parseInt(call("?myturn="+curTurn, true));'."\n";
+      echo '      if(isNaN(parseInt(myTurn))) alert("Error at turn update!");'."\n";
+      echo '   }'."\n";
+      echo "\n";
       echo '   //Mark the Last Played Move'."\n";
       echo '   if(lastPlayed)'."\n";
       echo '      lastPlayed.className = lastPlayed.className.split("last").join("");'."\n";
@@ -440,7 +549,7 @@ if(isset($_REQUEST['js'])){
       echo '   lastPlayed = elem;'."\n";
       echo "\n";
       echo '   //Announce Turns'."\n";
-      echo '   msg = observer? "<b>"+marks[curTurn-1]+"</b>\'s turn" : (curTurn==myTurn ? "Your Turn" : "Opponent\'s Turn");'."\n";
+      echo '   msg = (!relativeAnnouncement)? "<b>"+marks[curTurn-1]+"</b>\'s turn" : (curTurn==myTurn ? "Your Turn" : "Opponent\'s Turn");'."\n";
       echo '   document.getElementById("notice").innerHTML = msg;'."\n";
       echo "\n";
       echo '   //Check for victory'."\n";
@@ -449,13 +558,13 @@ if(isset($_REQUEST['js'])){
       echo '      document.getElementById("notice").innerHTML = "<big style=\"color:darkblue;\"><b>"+m+"</b> Won!</big>";'."\n";
       echo "\n";
       echo '      if(document.getElementById("observe"))'."\n";
-      echo '         document.getElementById("observe").innerHTML = "<br /><a href=\'#\' onclick=\'call(\"?record&winner="+marks.indexOf(m)+"\", function(t){window.location.href=\"?\";} );\'>Record</a>";'."\n";
+      echo '         document.getElementById("observe").innerHTML = "<br /><a href=\'#\' onclick=\'call(\"?record&winner="+marks.indexOf(m)+"&rename&to=\"+prompt(\"Would you like to rename the replay?\"), function(t){window.location.href=\"?\";} );\'>Record</a>";'."\n";
       echo '   }'."\n";
       echo '   return true;'."\n";
       echo '}'."\n";
    }
    if($_REQUEST['js']=='winCheck'){
-	   echo 'function winCheck(elem, mark){'."\n";
+      echo 'function winCheck(elem, mark){'."\n";
       echo '   //Check Horisontal Axis'."\n";
       echo '      x_ = x(elem);'."\n";
       echo '      for(c=0; c<4; c++)'."\n";
@@ -546,12 +655,12 @@ if(isset($_REQUEST['js'])){
       echo '      elem.innerHTML = "";'."\n";
       echo '}'."\n";
    }
-   exit;      
+   exit;
 }
 //CSS
 css:
 if(isset($_REQUEST['css'])){
- 	if($_REQUEST['css']=='game'){
+   if($_REQUEST['css']=='game'){
       echo '      .game.cell{'."\n";
       echo '         width:20px;'."\n";
       echo '         height:20px;'."\n";
@@ -577,8 +686,8 @@ if(isset($_REQUEST['css'])){
       echo '         border:2px solid #d4d4d4;'."\n";
       //echo '         background-color: #d4d4d4;'."\n";
       echo '      }'."\n";
- 	}
- 	exit;
+   }
+   exit;
 }
 
 head:
@@ -589,8 +698,8 @@ body:
 //Game - Observe
 if(isset($_REQUEST['observe'])){
    if(mysql_("SELECT GameName FROM scu_games WHERE Players like '".$_REQUEST['observe']."%'",true)<1){
-   	echo '<script type="text/javascript">window.location.href="?";</script>';
-   	exit;
+      echo '<script type="text/javascript">window.location.href="?";</script>';
+      exit;
    }
 
    echo '<head>'."\n";
@@ -603,6 +712,8 @@ if(isset($_REQUEST['observe'])){
    echo '   <script type="text/javascript" src="?js=winCheck"></script>'."\n";
    echo '   <script type="text/javascript">'."\n";
    echo '      observer = true;'."\n";
+   echo '      relativeAnnouncement = false;'."\n";
+   echo '      hasAI = false;'."\n";
    echo '      inProgress = true;'."\n";
    echo "\n";
    echo '      marks = new Array("'.join('", "', explode(",", mysql_("SELECT Marks FROM scu_games WHERE Players like '%".$_REQUEST['observe']."%'"))).'")'."\n";
@@ -622,7 +733,7 @@ if(isset($_REQUEST['observe'])){
    echo '            <tr id=":0">'."\n";
    echo '               <td id="0:0" class="game cell"></td>'."\n";
    echo '            </tr>'."\n";
-   echo '   	   </table>'."\n";
+   echo '         </table>'."\n";
    echo "\n";
    echo '         <br />'."\n";
    echo '         <div id="notice"></div>'."\n";
@@ -669,7 +780,7 @@ if(isset($_REQUEST['observe'])){
         '    gameOver = false;'.
         '    mark( call(\'?turn=\'+(turns-(-1))+\'&host='.$_REQUEST['observe'].'\', true) );'.
         ' ">Back a Turn</a>'."\n";
-                  
+
    echo "\n";
    echo '         <br /><br />'."\n";
    echo '         &nbsp; <big id="quit"><a onclick="call(\'?clear\', true);" href="?">Quit</a></big>'."\n";
@@ -678,7 +789,8 @@ if(isset($_REQUEST['observe'])){
    echo '            function read(){'."\n";
    echo '               if((t = call("?turn="+(turns-(-1))+"&host='.$_REQUEST['observe'].'", true)) !="")'."\n";
    echo '                  mark(t);'."\n";
-   echo '               else{'."\n";
+   echo "\n";
+   echo '               if(gameOver){'."\n";
    echo '                  inProgress = false;'."\n";
    echo '                  return "done";'."\n";
    echo '               }'."\n";
@@ -708,6 +820,9 @@ if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is not NULL and Turns lik
    echo '   <script type="text/javascript" src="?js=highlight"></script>'."\n";
    echo '   <script type="text/javascript">'."\n";
    echo '      observer = false;'."\n";
+      $pl = mysql_("SELECT Players FROM scu_games WHERE Players LIKE '%".session_id()."%'");
+   echo '      relativeAnnouncement = '.((count(explode(",", $pl)) > count(array_unique(explode(",", $pl))))? 'false' : 'true').';'."\n";
+   echo '      hasAI = '.(stripos(" ".$pl, "AI:")? 'true' : 'false').';'."\n";
    echo '      inProgress = true;'."\n";
    echo "\n";
    echo '      marks = new Array("'.join('", "', explode(",", mysql_("SELECT Marks FROM scu_games WHERE Players like '%".session_id()."%'"))).'")'."\n";
@@ -742,7 +857,7 @@ if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is not NULL and Turns lik
    echo '            <tr id=":0">'."\n";
    echo '               <td id="0:0" class="game cell"></td>'."\n";
    echo '            </tr>'."\n";
-   echo '   	   </table>'."\n";
+   echo '         </table>'."\n";
    echo "\n";
    echo '         <br />'."\n";
    echo '         <div id="notice"></div>'."\n";
@@ -810,6 +925,7 @@ if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is NULL  or Turns not lik
    echo '               </td>'."\n";
    echo '            </tr>'."\n";
    echo '            <tr>'."\n";
+   echo '                <style type="text/css">small:hover{text-decoration:underline;}</style>'."\n";
    echo '               <td colspan="2" align="center">'."\n";
    echo '                  Players in game:'."\n";
    echo '                  <div id="players"></div><br />'."\n";
@@ -823,31 +939,47 @@ if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is NULL  or Turns not lik
    echo '                           code += "      <td><strong>Options</strong></td>\n";'."\n";
    echo '                           code += "   </tr>\n";'."\n\n";
 
-   echo '                           ts = t.split(",");'."\n\n";
+   echo '                           ts   = t.split(",");'."\n\n";
+   echo '                           host = ts.shift();'."\n\n";
 
    echo '                           code += "   <tr>\n";'."\n";
    echo '                           code += "      <td><em>Host</em>:</td>\n";'."\n";
-   echo '                           code += "      <td><strong>"+ts.shift().split("(")[1].split(")").join("")+"</strong></td>\n";'."\n";
+   echo '                           code += "      <td><strong>"+host.split("(")[1].split(")").join("")+"</strong></td>\n";'."\n";
    if($host)
       echo '                           code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
    echo '                           code += "   </tr>\n";'."\n";
    echo "\n";
-   echo '                           if(ts.length > 0 ){'."\n";
+   echo '                           if(ts.length > 0 )'."\n";
    echo '                              for(i in ts){'."\n";
    echo '                                 code += "   <tr>\n";'."\n";
    echo '                                 code += "      <td><em>Guest</em>:</td>\n";'."\n";
    echo '                                 code += "      <td><strong>"+ts[i].split("(")[1].split(")").join("")+"</strong></td>\n";'."\n";
-   if($host)
-      echo '                                 code += "      <td><strong> <a href=\"#\" onclick=\"call(\'?kick="+ts[i].split("(")[0]+"\');\">Kick</a> &nbsp;, &nbsp;<a href=\"?\" onclick=\"window.onunload=\'\'; call(\'?promote="+ts[i].split("(")[0]+"\', true);\" title=\"Promote to host\">Promote</a> </strong></td>\n";'."\n";
-   else{
+   if($host){
+      echo '                                 code += "      <td><strong>\n";'."\n";
+      echo '                                 code += "         <a href=\"#\" onclick=\"call(\'?kick="+i+"\');//call(\'?kick="+ts[i].split("(")[0]+"\');\">Kick</a>\n";'."\n";
+      echo '                                 if(ts[i].split("(")[1].split(")").join("") != host.split("(")[1].split(")").join("") && ts[i].split("(")[1].split(")").join("").indexOf("AI")==-1){'."\n";
+      echo '                                    code += "         &nbsp;, &nbsp;\n";'."\n";
+      echo '                                    code += "         <a href=\"?\" onclick=\"window.onunload=\'\'; call(\'?promote="+ts[i].split("(")[0]+"\', true);\" title=\"Promote to host\">Promote</a>\n"'."\n";
+      echo '                                 }'."\n";
+      echo '                                 code += "      </strong></td>\n";'."\n";
+   }else{
       echo '                                 if(ts[i].split("(")[1].split(")").join("") == "'.$_COOKIE['username'].'")'."\n";
       echo '                                    code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
    }
    echo '                                 code += "   </tr>\n";'."\n";
    echo '                              }'."\n";
+
+   echo "\n";
+   echo '                              code += "   <tr> <td colspan=\"3\" align=\"center\">'.
+                                       ' <small onclick=\"call(\'?join='.session_id().'\');\">Add Self</small>'.
+                                       '&nbsp; &nbsp; &nbsp; &nbsp;'.
+                                       ' <small onclick=\"call(\'?join='.session_id().'&ai=easy\');\">Add AI</small>'.
+                                       ' </td> </tr>\n";'."\n";
+   echo "\n";
+
    if($host)
-      echo '                              code += "   <tr> <td colspan=\"3\" align=\"center\"><a href=\"#\" onclick=\"window.onunload=\'\'; window.location.href=\'?start\';\"><em>Start Game</em></a></td> </tr>\n";'."\n";
-   echo '                           }'."\n";
+      echo '                           if(ts.length > 0) code += "   <tr> <td colspan=\"3\" align=\"center\"><a href=\"#\" onclick=\"window.onunload=\'\'; window.location.href=\'?start\';\"><em>Start Game</em></a></td> </tr>\n";'."\n";
+   echo '                           '."\n";
    echo "\n";
    echo '                           code += "</table>\n";'."\n";
    echo '                        }else'."\n";
@@ -879,8 +1011,8 @@ echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
 echo "\n";
 echo '   <script type="text/javascript">'."\n";
 echo '      function createGame(){'."\n";
-echo '      	var gamename = "'. ((isset($_COOKIE['gamename']))? $_COOKIE['gamename'] : "New Game"). '";'."\n";
-echo '      	var rules    = "'. ((isset($_COOKIE['rules']))?    $_COOKIE['rules']    : "<3")      . '";'."\n";
+echo '         var gamename = "'. ((isset($_COOKIE['gamename']))? $_COOKIE['gamename'] : "New Game"). '";'."\n";
+echo '         var rules    = "'. ((isset($_COOKIE['rules']))?    $_COOKIE['rules']    : "<3")      . '";'."\n";
 echo "\n";
 echo '         window.location.href= "?create&game="+gamename+"&rules="+rules;'."\n";
 echo '      }'."\n";

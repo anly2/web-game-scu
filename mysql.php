@@ -5,7 +5,8 @@ $mysql_user = 'root';
 $mysql_pass = 'ju44rff';
 $mysql_db   = 'game';
 
-define("MYSQL_TABLE", 4); // Determine if a single row should be an array or a table (x2 array)
+define("MYSQL_TABLE", 4, true); // Determine if a single row should be an array or a table (x2 array)
+$mysql_wait = 0;
 
 // p:
 //    true            ->   return rowCount
@@ -16,16 +17,17 @@ define("MYSQL_TABLE", 4); // Determine if a single row should be an array or a t
 
 
 function mysql_($query, $p=false){
-   global $mysql_host, $mysql_user, $mysql_pass, $mysql_db;
+   global $mysql_host, $mysql_user, $mysql_pass, $mysql_db, $mysql_wait;
 
-   if(!mysql_connect($mysql_host, $mysql_user, $mysql_pass))
-      return false;
+   $s = 0;
+   while(!mysql_connect($mysql_host, $mysql_user, $mysql_pass) && ($s++)<$mysql_wait)
+      sleep(1);
    if(!mysql_select_db($mysql_db))
       return false;
 
-   
+
    $q = mysql_query($query);
-        
+
    if(is_bool($q))
       return $q;
 
@@ -38,10 +40,9 @@ function mysql_($query, $p=false){
 
    if($p >= MYSQL_TABLE){
       $strict = true;
-      $p = $p^MYSQL_TABLE;
+      $p = (($p>4)? $p^MYSQL_TABLE : MYSQL_BOTH);
    }else
       $strict = false;
-      
 
    if(mysql_num_rows($q)>0)
       if(mysql_num_rows($q)==1)
@@ -58,6 +59,7 @@ function mysql_($query, $p=false){
       else{
          while($r = mysql_fetch_array($q, $p))
             $a[] = $r;
+
          return $a;
       }
    else
