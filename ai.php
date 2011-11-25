@@ -102,9 +102,6 @@ class player{
       return $this->mark;
    }
 }
-foreach(${player::$vMarks} as $m)
-   $players[] = new player($m);
-
 
 class line{
    public $valid, $owner, $blocked = false, $locked = false, $length;
@@ -291,7 +288,7 @@ class cell{
       $dirs[] = array( 'dir'=>"down left",  'x'=> -1  , 'y'=> -1 );
 
       foreach($dirs as $dir){
-         $i = 0;
+         $i = 1;
          do{
             $cell = new cell( ($this->x + $i*$dir['x']) .":". ($this->y + $i*$dir['y']) );
 
@@ -302,7 +299,7 @@ class cell{
             }else
 
             // If is enemy, reset the result (Closed Corridor)
-            if(!is_null($this->owner))
+            if(!is_null($cell->owner))
                $i = 0;
             // Else if is a gap $i will show the offset (Opened Corridor)
 
@@ -310,8 +307,11 @@ class cell{
             break;
          }while(true);
 
-         $vector = new line($this->id, ( ($this->x + $i*$dir['x']) .":". ($this->y + $i*$dir['y']) ) );
-         $arr[] = $vector;
+         if($i>0){
+            $vector = new line($this->id, ( ($this->x + $i*$dir['x']) .":". ($this->y + $i*$dir['y']) ) );
+            if(!$vector->blocked)
+               $arr[] = $vector;
+         }
       }
 
       return $arr;
@@ -455,13 +455,18 @@ class cell{
    }
 }
 
+$players = array();
+foreach(${player::$vMarks} as $m)
+   $players[] = new player($m);
+
+
 
 
 define('all',        0, true);
 define('aggressive', 1, true);
 define('defensive',  2, true);
 define('mixed',      3, true);
-$announce = false;
+$announce = isset($_REQUEST['ann']);
 
 function rate($cell, $player, $r=0){
    $aggr = $def = $mixed = 0;
@@ -538,25 +543,32 @@ if($announce) echo "Execute: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add a point for each open corridor (has potential)
       $cor = $rated->openedCorridors();
-   $aggr += floor(count($cor)/2);
+   $aggr += floor(count($cor)/3); // )/2);
 if($announce) echo "Potential: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add a point for each marked cell that combines with rated and the line is not blocked
       $combos = 0;
-      foreach($cor as $v)
-         $combos += $v->length;
+      foreach($cor as $v){
+         if(!$v->blocked && $v->length > 1)
+            $combos += $v->length;
+      }
    $aggr += floor($combos/2);
 if($announce) echo "Combine: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add two extra points if rated forms a dangerous line (unblocked line longer than 2 cells)
-   if(count($rated->longest(3))>0)
+      $longest = $rated->longest(3);
+      foreach($longest as $k=>$v){
+         if($v->locked || ($v->length < 4 && $v->blocked))
+            unset($longest[$k]);
+      }
+   if(count($longest)>0)
       $aggr += 2;
 if($announce) echo "Endanger: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add three extra points if rated forms two+ dangerous lines
       $long = $rated->longer(3);
       foreach($long as $k=>$v){ //Remove blocked ones
-         if( ($v->length == 3 && $v->blocked) || ($v->length == 4 && $v->locked) )
+         if($v->locked || ($v->length < 4 && $v->blocked) )
             unset($long[$k]);
       }
    if(count($long) >= 2){
@@ -584,11 +596,16 @@ if($announce) echo "Sees: ".($def-$d_)."<br />\n"; $d_ = $def;
 if($announce) echo "Touches: ".($def-$d_)."<br />\n"; $d_ = $def;
 
 
-   // Add 5 points if it prevents the forming of 2 dangerous3
+   // Add 5 points if it prevents the forming of 2 dangerous lines
       $rated->owner = $player->enemy();
       $GLOBALS['moves'][$cell] = $player->enemy()->mark;
 
-   if(count($rated->longest(3))>(1*2))
+      $eLong = $rated->longer(3);
+      foreach($eLong as $k=>$v){
+         if($v->locked || ($v->length < 4 && $v->blocked))
+            unset($eLong[$k]);
+      }
+   if(count($eLong)>(1))
       $def += 5;
 
       $rated->owner = $player;
@@ -605,7 +622,7 @@ if($announce) echo "Total: a$a_ d$d_ m".($a_+$d_)."<hr />\n";
 
 
    //Remove the temporal ownership
-   unset($GLOBALS['moves'][$cell]);
+   unset($rated, $GLOBALS['moves'][$cell]);
 
 
    if($r==0 || $r==1) $rating[] = $aggr;
@@ -617,35 +634,36 @@ if($announce) echo "Total: a$a_ d$d_ m".($a_+$d_)."<hr />\n";
 }
 
 
-   //Collect Availables
-   $avs = array();
-   foreach($moves as $id=>$mark)
-      for($i=-1;$i<=1;$i++)
-         for($j=-1;$j<=1;$j++){
-            list($x, $y) = explode(":", $id);
+//Collect Availables
+$avs = array();
+foreach($moves as $id=>$mark)
+   for($i=-1;$i<=1;$i++)
+      for($j=-1;$j<=1;$j++){
+         list($x, $y) = explode(":", $id);
 
-            $t = ($x+$i).":".($y+$j);
-            if(!isset($moves[$t]) && !in_array($t, $avs))
-               $avs[] = $t;
-         }
+         $t = ($x+$i).":".($y+$j);
+         if(!isset($moves[$t]) && !in_array($t, $avs))
+            $avs[] = $t;
+      }
 
-   //Rate every Available
-   foreach($avs as $k=>$a)
-      $arr[$a] = rate($a, $players[ ((count(explode(",", $_REQUEST['m'])))%count($marks)) ],MIXED);
+//Rate every Available
+foreach($avs as $k=>$a)
+   $arr[$a] = rate($a, $players[ ((count(explode(",", $_REQUEST['m'])))%count($marks)) ],MIXED);
 
-   //Sort them by highest rating
-   arsort($arr, SORT_NUMERIC);
+//Sort them by highest rating
+arsort($arr, SORT_NUMERIC);
 
-   //Fetch only the Top Rated
-   $topRated = array();
-   foreach($arr as $id=>$r)
-      if($r >= reset($arr))
-         $topRated[] = $id;
+//Fetch only the Top Rated
+$topRated = array();
+foreach($arr as $id=>$r)
+   if($r >= reset($arr))
+      $topRated[] = $id;
 
-   //Make the decision
-   $chosen = $topRated[array_rand($topRated)];
+//Make the decision
+$chosen = $topRated[array_rand($topRated)];
 
-   //AI:Act!
-   if(!isset($GLOBALS['ai']))
-      echo $chosen;
+
+//AI:Act!
+if(!isset($GLOBALS['ai']))
+   echo $chosen;
 ?>

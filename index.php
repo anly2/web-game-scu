@@ -21,40 +21,38 @@ if(PHP_SAPI === 'cli'){
    }
 
    exit;
-}
-//End of Scheduled Tasks
+}//End of Scheduled Tasks
 
 // Session Management - Start
-session:
-if( isset($_REQUEST['clear'])){
-   mysql_("DELETE FROM scu_users WHERE SID='".session_id()."'");
+session:{
+   if( isset($_REQUEST['clear'])){
+      mysql_("DELETE FROM scu_users WHERE SID='".session_id()."'");
 
-   if(isset($_REQUEST['game'])){
-      mysql_("DELETE FROM scu_games WHERE Players like '".session_id()."%'");
-      mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".session_id()."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE LOCATE('".session_id()."', Players)>0");
+      if(isset($_REQUEST['game'])){
+         mysql_("DELETE FROM scu_games WHERE Players like '".session_id()."%' OR (Players like '%".session_id()."%' AND Turns is not null)");
+         mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".session_id()."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2), Sequence=LEFT(Sequence, LENGTH(Sequence)-2) WHERE LOCATE('".session_id()."', Players)>0");
+      }
+
+      exit("Success");
    }
-
-   exit("Success");
-}
-if(!isset($_COOKIE['username'])){
-   echo '<script type="text/javascript">'."\n";
-   echo '   var nickname = prompt("Would you like to specify a nickname?");'."\n";
-   echo '   if(nickname==null) nickname = "Guest";'."\n";
-   echo "\n";
-   echo '   //Set Cookie'."\n";
-   echo '   var exdate = new Date();'."\n";
-   echo '   exdate.setDate(exdate.getDate() + 7);'."\n";
-   echo '   document.cookie= "username=" + nickname + "; expires="+exdate.toUTCString();'."\n";
-   echo '   window.location.reload();'."\n";
-   echo '</script>'."\n";
-   exit;
-}
-mysql_("INSERT INTO scu_users (SID, Name) VALUES ('".session_id()."', '".$_COOKIE['username']."')");
-// Session Management - End
-
+   if(!isset($_COOKIE['username'])){
+      echo '<script type="text/javascript">'."\n";
+      echo '   var nickname = prompt("Would you like to specify a nickname?");'."\n";
+      echo '   if(nickname==null) nickname = "Guest";'."\n";
+      echo "\n";
+      echo '   //Set Cookie'."\n";
+      echo '   var exdate = new Date();'."\n";
+      echo '   exdate.setDate(exdate.getDate() + 7);'."\n";
+      echo '   document.cookie= "username=" + nickname + "; expires="+exdate.toUTCString();'."\n";
+      echo '   window.location.reload();'."\n";
+      echo '</script>'."\n";
+      exit;
+   }
+   mysql_("INSERT INTO scu_users (SID, Name) VALUES ('".session_id()."', '".$_COOKIE['username']."')");
+}// Session Management - End
 
 // JS->PHP->MySQL
-js_php_mysql:
+js_php_mysql:{
 if(isset($_REQUEST['logout'])){
    setcookie("username", "", time()-1);
    echo '<script type="text/javascript">window.location.href="'.($_REQUEST['logout']==""? "?":$_REQUEST['logout']).'";</script>'."\n";
@@ -70,23 +68,39 @@ if(isset($_REQUEST['create'], $_REQUEST['game'])){
    exit;
 }
 if(isset($_REQUEST['availableGames'])){
-   $game = mysql_("SELECT game.GameName, '/', SUBSTRING_INDEX(game.Players, ',', 1), '(', players.Name, ')' FROM scu_games as game, scu_users as players WHERE game.Players like CONCAT(players.SID, '%') AND (game.Turns is NULL OR game.Turns not like '0:0%')", MYSQL_NUM|MYSQL_TABLE);
-   if(!$game) exit;
+   $arr = array();
+   $games = mysql_("SELECT GameName,Players FROM scu_games WHERE Turns is NULL OR Turns not like '0:0%'",MYSQL_ASSOC|MYSQL_TABLE);
+   if(!$games) exit;
 
-   foreach($game as $g)
-      $games[] = join($g);
+   foreach($games as $k=>$g){
+      $players = explode(",", $g['Players']);
+      $pl      = array();
 
-   echo join(",", $games);
+      foreach($players as $p)
+         $pl[] = $p . "(" . mysql_("SELECT Name FROM scu_users WHERE SID='".$p."'") . ")";
+
+      $arr[]  = $g['GameName'] . "/" . join(",", $pl);
+   }
+
+   echo join("\n", $arr);
    exit;
 }
 if(isset($_REQUEST['playedGames'])){
-   $game = mysql_("SELECT game.GameName, '/', SUBSTRING_INDEX(game.Players, ',', 1), '(', players.Name, ')' FROM scu_games as game, scu_users as players WHERE (players.SID = game.Players OR game.Players like CONCAT('%', players.SID, ',%')) AND (game.Turns is not NULL AND game.Turns like '0:0%')", MYSQL_NUM|MYSQL_TABLE);
-   if(!$game) exit;
+   $arr = array();
+   $games = mysql_("SELECT GameName,Players FROM scu_games WHERE Turns is not NULL AND Turns like '0:0%'",MYSQL_ASSOC|MYSQL_TABLE);
+   if(!$games) exit;
 
-   foreach($game as $g)
-      $games[] = join($g);
+   foreach($games as $k=>$g){
+      $players = explode(",", $g['Players']);
+      $pl      = array();
 
-   echo join(",", $games);
+      foreach($players as $p)
+         $pl[] = $p . "(" . mysql_("SELECT Name FROM scu_users WHERE SID='".$p."'") . ")";
+
+      $arr[]  = $g['GameName'] . "/" . join(",", $pl);
+   }
+
+   echo join("\n", $arr);
    exit;
 }
 if(isset($_REQUEST['join'])){
@@ -135,53 +149,13 @@ if(isset($_REQUEST['join'])){
 
    if($allowed)
       mysql_("UPDATE scu_games SET".
-         " Players=CONCAT(Players, ',".(isset($_REQUEST['ai'])? $ai : session_id())."'),".
-         " Marks=CONCAT(Marks, ',".$marks[count(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".$_REQUEST['join']."%'")))]."') ".
+         " Players =CONCAT(Players, ',".(isset($_REQUEST['ai'])? $ai : session_id())."'),".
+         " Marks   =CONCAT(Marks, ',".$marks[count(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".$_REQUEST['join']."%'")))]."'), ".
+         " Sequence=CONCAT(Sequence, ',".(max(explode(",", mysql_("SELECT Sequence FROM scu_games WHERE Players like '%".$_REQUEST['join']."%'") ))+1)."') ".
          "WHERE Players LIKE '".$_REQUEST['join']."%'"
-      );
+      ) or die(mysql_error());
    else
       echo '<script type="text/javascript">alert("Sorry, you are not allowed to this game.");</script>'."\n";
-
-   echo '<script type="text/javascript">window.location.href="?";</script>';
-   exit;
-}
-if(isset($_REQUEST['update'])){
-   if(isset($_REQUEST['game'])){
-      mysql_("UPDATE scu_games SET GameName='".$_REQUEST['game']."' WHERE Players LIKE '".session_id()."%'");
-      setcookie("gamename", $_REQUEST['game'],  time()+ 30*24*60*60);
-   }
-   if(isset($_REQUEST['rules'])){
-      mysql_("UPDATE scu_games SET Rules='".$_REQUEST['rules']."' WHERE Players LIKE '".session_id()."%'");
-      setcookie("rules", $_REQUEST['game'],  time()+ 30*24*60*60);
-   }
-}
-if(isset($_REQUEST['kick'])){
-   if(!is_numeric($_REQUEST['kick']))
-      mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".$_REQUEST['kick']."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE Players LIKE '".session_id()."%'");
-   else{
-      $players = explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"));
-      unset($players[$_REQUEST['kick']+1]);
-      $players = join(",", $players);
-
-      mysql_("UPDATE scu_games SET Players='".$players."', Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE Players LIKE '".session_id()."%'");
-   }
-   exit;
-}
-if(isset($_REQUEST['promote'])){
-   mysql_("UPDATE scu_games SET Players=CONCAT('".$_REQUEST['promote'].",', REPLACE(Players, ',".$_REQUEST['promote']."', '')) WHERE Players like '".session_id()."%'");
-   exit;
-}
-if(isset($_REQUEST['start'])){
-   mysql_("UPDATE scu_games SET Turns='0:0' WHERE Players LIKE '".session_id().",%' AND Turns IS NULL");
-
-   //If it's AI's turn next, perform the move
-   if(stripos(" ".next(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"))), "AI:")){
-      $GLOBALS['ai'] = true;
-      $_REQUEST['m'] = "0:0";
-
-      include "ai.php";
-      mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$chosen."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$chosen."%'");
-   }
 
    echo '<script type="text/javascript">window.location.href="?";</script>';
    exit;
@@ -202,15 +176,80 @@ if(isset($_REQUEST['status'])){
    exit; // exit("normal");
 }
 if(isset($_REQUEST['players'])){
-   $players = mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%'", MYSQL_NUM);
+   $players = mysql_("SELECT Players,Marks,Sequence FROM scu_games WHERE Players like '%".session_id()."%'", MYSQL_NUM) or die(mysql_error());
 
-   $player  = explode(",", $players);
+   $player  = explode(",", $players[0]);
+   $marks   = explode(",", $players[1]);
+   $turns   = explode(",", $players[2]);
    $players = array();
 
-   foreach($player as $sid)
-      $players[] = $sid."(".mysql_("SELECT Name FROM scu_users WHERE SID='".$sid."'").")";
+   foreach($player as $i=>$sid)
+      $players[] = $sid
+                       ."(".mysql_("SELECT Name FROM scu_users WHERE SID='".$sid."'").")"
+                       ."[".$marks[$i]."]"
+                       ."{".$turns[$i]."}";
 
    echo join(",", $players);
+   exit;
+}
+if(isset($_REQUEST['update'])){
+   if(isset($_REQUEST['game'])){
+      mysql_("UPDATE scu_games SET GameName='".$_REQUEST['game']."' WHERE Players LIKE '".session_id()."%'");
+      setcookie("gamename", $_REQUEST['game'],  time()+ 30*24*60*60);
+   }
+   if(isset($_REQUEST['rules'])){
+      mysql_("UPDATE scu_games SET Rules='".$_REQUEST['rules']."' WHERE Players LIKE '".session_id()."%'");
+      setcookie("rules", $_REQUEST['game'],  time()+ 30*24*60*60);
+   }
+   if(isset($_REQUEST['sequence'])){
+      $seq = explode(",", mysql_("SELECT Sequence FROM scu_games WHERE Players LIKE '".session_id()."%'"));
+      $seq[((int)$_REQUEST['set'])-1] = (int)$_REQUEST['to'];
+      mysql_("UPDATE scu_games SET Sequence='".join(",", $seq)."' WHERE Players LIKE '".session_id()."%'");
+   }
+   exit;
+}
+if(isset($_REQUEST['kick'])){
+   if(!is_numeric($_REQUEST['kick']))
+      mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".$_REQUEST['kick']."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2), Sequence=LEFT(Sequence, LENGTH(Sequence)-2) WHERE Players LIKE '".session_id()."%'");
+   else{
+      $players = explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"));
+      unset($players[$_REQUEST['kick']+1]);
+      $players = join(",", $players);
+
+      mysql_("UPDATE scu_games SET Players='".$players."', Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE Players LIKE '".session_id()."%'");
+   }
+   exit;
+}
+if(isset($_REQUEST['promote'])){
+   mysql_("UPDATE scu_games SET Players=CONCAT('".$_REQUEST['promote'].",', REPLACE(Players, ',".$_REQUEST['promote']."', '')) WHERE Players like '".session_id()."%'");
+   exit;
+}
+if(isset($_REQUEST['start'])){
+   $players = mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id().",%' AND Turns IS NULL");
+
+   if(isset($_REQUEST['t']) && is_array($_REQUEST['t'])){
+      $plyrs   = explode(',', $players);
+      $turns   = $_REQUEST['t'];
+      $players = '';
+
+      asort($turns);
+      foreach($turns as $t=>$v)
+         $players[] = $plyrs[$t];
+      $players = join(",", $players);
+   }
+
+   mysql_("UPDATE scu_games SET Turns='0:0', Players='".$players."' WHERE Players LIKE '".session_id().",%' AND Turns IS NULL");
+
+   //If it's AI's turn next, perform the move
+   if(stripos(" ".next(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"))), "AI:")){
+      $GLOBALS['ai'] = true;
+      $_REQUEST['m'] = "0:0";
+
+      include "ai.php";
+      mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$chosen."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$chosen."%'");
+   }
+
+   echo '<script type="text/javascript">window.location.href="?";</script>';
    exit;
 }
 if(isset($_REQUEST['mark'])){
@@ -226,6 +265,7 @@ if(isset($_REQUEST['mark'])){
 
    mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$_REQUEST['mark']."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$_REQUEST['mark']."%'");
    echo "Success";
+   flush();
 
 
    //If it's AI's turn next, perform the move
@@ -248,6 +288,9 @@ if(isset($_REQUEST['mark'])){
 if(isset($_REQUEST['turn'])){
    $saughtPlayer = isset($_REQUEST['host'])? $_REQUEST['host'] : session_id();
    $moves = mysql_("SELECT Turns FROM scu_games WHERE Players like '%".$saughtPlayer."%'");
+
+   if(!$moves)
+      echo "Abandoned";
 
    $e = explode(",", $moves);
 
@@ -318,7 +361,7 @@ if(isset($_REQUEST['rename'], $_REQUEST['to'])){
 
    exit("Success");
 }
-
+}
 
 //Javascript
 js:
@@ -657,6 +700,7 @@ if(isset($_REQUEST['js'])){
    }
    exit;
 }
+
 //CSS
 css:
 if(isset($_REQUEST['css'])){
@@ -690,206 +734,371 @@ if(isset($_REQUEST['css'])){
    exit;
 }
 
-head:
-echo '<html>'."\n";
+//HTML
+head:{
+   echo '<html>'."\n";
+}
 
+body:{
+   //Game - Observe
+   if(isset($_REQUEST['observe'])){
+      if(mysql_("SELECT GameName FROM scu_games WHERE Players like '".$_REQUEST['observe']."%'",true)<1){
+         echo '<script type="text/javascript">window.location.href="?";</script>';
+         exit;
+      }
 
-body:
-//Game - Observe
-if(isset($_REQUEST['observe'])){
-   if(mysql_("SELECT GameName FROM scu_games WHERE Players like '".$_REQUEST['observe']."%'",true)<1){
-      echo '<script type="text/javascript">window.location.href="?";</script>';
-      exit;
+      echo '<head>'."\n";
+      echo '   <title>Sea Chess Unbound</title>'."\n";
+      echo "\n";
+      echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=coordinates"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=maintenance"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=mark"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=winCheck"></script>'."\n";
+      echo '   <script type="text/javascript">'."\n";
+      echo '      observer = true;'."\n";
+      echo '      relativeAnnouncement = false;'."\n";
+      echo '      hasAI = false;'."\n";
+      echo '      inProgress = true;'."\n";
+      echo "\n";
+      echo '      marks = new Array("'.join('", "', explode(",", mysql_("SELECT Marks FROM scu_games WHERE Players like '%".$_REQUEST['observe']."%'"))).'")'."\n";
+      echo '      speed  = '.(isset($_REQUEST['speed'])? $_REQUEST['speed']*1000 : 2000).';'."\n";
+      echo '   </script>'."\n";
+      echo "\n";
+      echo '   <link rel="stylesheet" type="text/css" href="?css=game" />'."\n";
+      echo "\n";
+      echo '</head>'."\n";
+      echo '<body onunload="call(\'?clear\', true);">'."\n";
+      echo "\n";
+      echo '<table width="100%" height="100%">'."\n";
+      echo '   <tr>'."\n";
+      echo '      <td width="80%" height="90%" align="center" valign="middle">'."\n";
+      echo "\n";
+      echo '         <table id="game:grid" style="position:relative;">'."\n";
+      echo '            <tr id=":0">'."\n";
+      echo '               <td id="0:0" class="game cell"></td>'."\n";
+      echo '            </tr>'."\n";
+      echo '         </table>'."\n";
+      echo "\n";
+      echo '         <br />'."\n";
+      echo '         <div id="notice"></div>'."\n";
+      echo "\n";
+      echo '      </td>'."\n";
+      echo '   </tr>'."\n";
+      echo '   <tr>'."\n";
+      echo '      <td width="80%" height="10%" align="center" valign="bottom">'."\n";
+      echo "\n";
+
+      echo '         <a href="#"><em onclick="speed = Math.min( (speed -(-500)) , 10000 );">Slow Down</em></a>'."\n";
+
+      echo "\n";
+      echo ' &nbsp; &nbsp; '."\n";
+
+      echo '         <a href="#"><strong id="pause"'.
+           ' onclick="'.
+           '   if(this.innerHTML==\'Pause\'){'.
+           '      clearTimeout(reader);'.
+           '      this.innerHTML=\'Resume\';'.
+           '   }else{ '.
+           '      read();'.
+           '      this.innerHTML=\'Pause\';'.
+           '   }'.
+                     '">Pause</strong></a>'."\n";
+
+      echo "\n";
+      echo ' &nbsp; &nbsp; '."\n";
+
+      echo '         <a href="#"><em onclick="speed = Math.max( (speed - 500) , 100 );">Speed Up</em></a>'."\n";
+
+      echo "\n";
+      echo '         <br />'."\n";
+      echo ' &nbsp; '."\n";
+      echo ' <a href="#"'.
+           '  onclick="'.
+           '    if(!lastPlayed) return;'.
+           '    if( lastPlayed.id == \'0:0\') return;'.
+           '    lastPlayed.innerHTML = \'\';'.
+           '    lastPlayed.className = \'game cell available\';'.
+           '    clearTimeout(reader);'.
+           '    document.getElementById(\'pause\').innerHTML = \'Resume\';'.
+           '    turns   -= 2;'.
+           '    gameOver = false;'.
+           '    mark( call(\'?turn=\'+(turns-(-1))+\'&host='.$_REQUEST['observe'].'\', true) );'.
+           ' ">Back a Turn</a>'."\n";
+
+      echo "\n";
+      echo '         <br /><br />'."\n";
+      echo '         &nbsp; <big id="quit"><a onclick="call(\'?clear\', true);" href="?">Quit</a></big>'."\n";
+      echo "\n";
+      echo '         <script type="text/javascript">'."\n";
+      echo '            function read(){'."\n";
+      echo '               if((t = call("?turn="+(turns-(-1))+"&host='.$_REQUEST['observe'].'", true)) !="")'."\n";
+      echo '                  mark(t);'."\n";
+      echo "\n";
+      echo '               if(gameOver){'."\n";
+      echo '                  inProgress = false;'."\n";
+      echo '                  return "done";'."\n";
+      echo '               }'."\n";
+      echo "\n";
+      echo '               reader = setTimeout(arguments.callee, speed);'."\n";
+      echo '            } read();'."\n";
+      echo '         </script>'."\n";
+      echo "\n";
+      echo '      </td>'."\n";
+      echo '   </tr>'."\n";
+      echo '</table>'."\n";
+      echo "\n";
+      echo '</body>'."\n";
+      goto end;
    }
+   //Game - Active
+   if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is not NULL and Turns like '0:0%') AND Players like '%".session_id()."%'", true)>0){
 
+      echo '<head>'."\n";
+      echo '   <title>Sea Chess Unbound</title>'."\n";
+      echo "\n";
+      echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=coordinates"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=maintenance"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=mark"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=winCheck"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=highlight"></script>'."\n";
+      echo '   <script type="text/javascript">'."\n";
+      echo '      observer = false;'."\n";
+         $pl = mysql_("SELECT Players FROM scu_games WHERE Players LIKE '%".session_id()."%'");
+      echo '      relativeAnnouncement = '.((count(explode(",", $pl)) > count(array_unique(explode(",", $pl))))? 'false' : 'true').';'."\n";
+      echo '      hasAI = '.(stripos(" ".$pl, "AI:")? 'true' : 'false').';'."\n";
+      echo '      inProgress = true;'."\n";
+      echo "\n";
+      echo '      marks = new Array("'.join('", "', explode(",", mysql_("SELECT Marks FROM scu_games WHERE Players like '%".session_id()."%'"))).'")'."\n";
+      echo '      myTurn = '.(array_search(session_id(), explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%'")))+1)."\n";
+      echo "\n";
+      echo "\n";
+      echo '      function listen(){'."\n";
+      echo '         call("?turn="+(turns-(-1)), function(t){if(t=="Abandoned"){ alert("Your opponent has left the game.\n\nYou can neither continue nor record this game."); gameOver=true; }else if(t!="") mark(t);}, true)'."\n";
+      echo "\n";
+      echo '         if(!gameOver) reader = setTimeout(arguments.callee, 1000);'."\n";
+      echo '      }'."\n";
+      echo "\n";
+      echo '      //Make the initial call'."\n";
+      echo '      window.onload = function(){'."\n";
+      echo '         while(inProgress)'."\n";
+      echo '            call("?turn="+(turns-(-1)), function(t){if(t!="") mark(t); else inProgress = false;}, true);'."\n";
+      echo "\n";
+      echo '         listen("for new turns");'."\n";
+      echo '      }'."\n";
+      echo '   </script>'."\n";
+      echo "\n";
+      echo '   <link rel="stylesheet" type="text/css" href="?css=game" />'."\n";
+      echo "\n";
+      echo '</head>'."\n";
+      echo '<body onunload="call(\'?clear\', true);">'."\n";
+      echo "\n";
+      echo '<table width="100%" height="100%">'."\n";
+      echo '   <tr>'."\n";
+      echo '      <td width="80%" height="95%" align="center" valign="middle">'."\n";
+      echo "\n";
+      echo '         <table id="game:grid">'."\n";
+      echo '            <tr id=":0">'."\n";
+      echo '               <td id="0:0" class="game cell"></td>'."\n";
+      echo '            </tr>'."\n";
+      echo '         </table>'."\n";
+      echo "\n";
+      echo '         <br />'."\n";
+      echo '         <div id="notice"></div>'."\n";
+      echo "\n";
+      echo '      </td>'."\n";
+      echo '   </tr>'."\n";
+      echo '   <tr>'."\n";
+      echo '      <td width="80%" height="5%" align="center" valign="bottom">'."\n";
+      echo "\n";
+      echo '         <br /><br /><br />'."\n";
+      echo '         <big id="quit"><a onclick="call(\'?clear&game\', true);" href="?">Quit</a></big>'."\n";
+      echo '         <div id="observe"></div>'."\n";
+      echo "\n";
+      echo '      </td>'."\n";
+      echo '   </tr>'."\n";
+      echo '</table>'."\n";
+      echo "\n";
+      echo '</body>'."\n";
+      goto end;
+   }
+   //Game - Created / Joined
+   if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is NULL  or Turns not like '0:0%') AND Players like '%".session_id()."%'", true)>0){
+      echo '<head>'."\n";
+      echo '   <title>Sea Chess Unbound</title>'."\n";
+      echo "\n";
+      echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
+      echo '   <script type="text/javascript">call("?status", function(t){if(t=="dead")window.location.href="?";});</script>'."\n";
+      echo '</head>'."\n";
+      echo '<body onunload="call(\'?clear&game\', true);">'."\n";
+      echo "\n";
+      echo 'Welcome '.$_COOKIE['username']."\n";
+      echo '<br /><a href="?logout"><small>Logout</small></a>'."\n";
+      echo "\n";
+      echo '<table width="100%" style="margin-top: 50px;">'."\n";
+      echo '   <tr>'."\n";
+      echo '      <td width="80%" align="center">'."\n";
+      echo "\n";
+      echo '         <table rules="all" cellpadding="20">'."\n";
+      echo '            <tr>'."\n";
+      echo '               <td colspan="2" align="center">'."\n";
+
+      $host = (mysql_("Select GameName from scu_games where Players like '".session_id()."%'", true)>0);
+      if($host){
+         echo '                  <label title="The name by which the game will be seen">'."\n";
+         echo '                     <strong>Game Name</strong><br />'."\n";
+         echo '                     <input id="game:name" type="text" style="text-align:center" value="'.mysql_("Select GameName from scu_games where Players like '".session_id()."%'").'" onchange="call(\'?update&game=\'+this.value);" />'."\n";
+         echo '                  </label>'."\n";
+      }else{
+         echo '                  <strong>Game Name</strong><br />'."\n";
+         echo '                  <em id="game:name"><b>'.mysql_("Select GameName from scu_games where Players like '%".session_id()."%'").'</em>'."\n";
+      }
+
+      echo '<br /><br />'."\n";
+
+      if($host){
+         echo '                  <label title="Reserve: abija     Ban: !abija     Limit Player Count: <3  =2">'."\n";
+         echo '                     <strong>Player Rules</strong><br />'."\n";
+         echo '                     <input id="game:rules" type="text" style="text-align:center" value="'.mysql_("Select Rules from scu_games where Players like '".session_id()."%'").'" onchange="call(\'?update&rules=\'+this.value);" />'."\n";
+         echo '                  </label>'."\n";
+      }else{
+         echo '                  <strong>Player Rules</strong><br />'."\n";
+         echo '                  <em id="game:rules">'.mysql_("Select Rules from scu_games where Players like '%".session_id()."%'").'</em>'."\n";
+      }
+
+      echo '               </td>'."\n";
+      echo '            </tr>'."\n";
+      echo '            <tr>'."\n";
+      echo '                <style type="text/css">small:hover{text-decoration:underline;}</style>'."\n";
+      echo '               <td colspan="2" align="center">'."\n";
+      echo '                  Players in game:'."\n";
+      echo '                  <div id="players"></div><br />'."\n";
+      echo '                  <script type="text/javascript">'."\n";
+      echo '                     q_p = true; //Query:Players'."\n";
+      echo "\n";
+      echo '                     function displayPlayers(t){'."\n";
+      echo '                        if(t == q_p) return true;'."\n";
+      echo '                        q_p = t;'."\n";
+      echo "\n";
+      echo '                        if(t!=""){'."\n";
+      echo '                           code  = "<table>\n";'."\n";
+      echo '                           code += "   <tr>\n";'."\n";
+      //echo '                           code += "      <td width=\"70\"></td>\n";'."\n";
+      echo '                           code += "      <td width=\"50\"><strong>Turn</strong></td>\n";'."\n";
+      echo '                           code += "      <td width=\"150\"><strong>Nickname</strong></td>\n";'."\n";
+      echo '                           code += "      <td><strong>Options</strong></td>\n";'."\n";
+      echo '                           code += "   </tr>\n";'."\n\n";
+
+      echo '                           var ts   = t.split(",");'."\n\n";
+      echo '                           var host = ts.shift();'."\n\n";
+      echo '                               row = 0;'."\n";
+
+      echo '                           code += "   <tr>\n";'."\n";
+//      echo '                           code += "      <td><em>Host</em>:</td>\n";'."\n";
+      echo '                           code += "      <td> <input type=\"text\" id=\"player:"+(row++)+"-turn\" value=\""+host.split("{")[1].split("}")[0]+"\"'.($host? ' onchange=\"call(\'?update&sequence&set="+row+"&to=\'+this.value);\"' : ' readonly').' style=\"width:25px;text-align:center;\" /> </td>\n";'."\n";
+      echo '                           code += "      <td><strong>"+host.split("(")[1].split(")")[0]+"</strong></td>\n";'."\n";
+      if($host)
+         echo '                           code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
+      echo '                           code += "   </tr>\n";'."\n";
+      echo "\n";
+      echo '                           if(ts.length > 0 )'."\n";
+      echo '                              for(i in ts){'."\n";
+      echo '                                 code += "   <tr>\n";'."\n";
+//      echo '                                 code += "      <td><em>Guest</em>:</td>\n";'."\n";
+      echo '                                 code += "      <td> <input type=\"text\" id=\"player:"+(row++)+"-turn\" value=\""+ts[i].split("{")[1].split("}")[0]+"\"'.($host? ' onchange=\"call(\'?update&sequence&set="+row+"&to=\'+this.value);\"' : ' readonly').' style=\"width:25px;text-align:center;\" /> </td>\n";'."\n";
+      echo '                                 code += "      <td><strong>"+ts[i].split("(")[1].split(")")[0]+"</strong></td>\n";'."\n";
+      if($host){
+         echo '                                 code += "      <td><strong>\n";'."\n";
+         echo '                                 code += "         <a href=\"#\" onclick=\"call(\'?kick="+i+"\');//call(\'?kick="+ts[i].split("(")[0]+"\');\">Kick</a>\n";'."\n";
+         echo '                                 if(ts[i].split("(")[1].split(")").join("") != host.split("(")[1].split(")").join("") && ts[i].split("(")[1].split(")").join("").indexOf("AI")==-1){'."\n";
+         echo '                                    code += "         &nbsp;, &nbsp;\n";'."\n";
+         echo '                                    code += "         <a href=\"?\" onclick=\"window.onunload=\'\'; call(\'?promote="+ts[i].split("(")[0]+"\', true);\" title=\"Promote to host\">Promote</a>\n"'."\n";
+         echo '                                 }'."\n";
+         echo '                                 code += "      </strong></td>\n";'."\n";
+      }else{
+         echo '                                 if(ts[i].split("(")[1].split(")")[0] == "'.$_COOKIE['username'].'")'."\n";
+         echo '                                    code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
+      }
+      echo '                                 code += "   </tr>\n";'."\n";
+      echo '                              }'."\n";
+
+      if($host){
+         echo "\n";
+         echo '                              code += "   <tr> <td colspan=\"4\" align=\"center\">'.
+                                             ' <small onclick=\"call(\'?join='.session_id().'\');\">Add Self</small>'.
+                                             '&nbsp; &nbsp; &nbsp; &nbsp;'.
+                                             ' <small onclick=\"call(\'?join='.session_id().'&ai=easy\');\">Add AI</small>'.
+                                             ' </td> </tr>\n";'."\n";
+         echo "\n";
+
+         echo '                           if(ts.length > 0) code += "   <tr> <td colspan=\"4\" align=\"center\"><a href=\"#\" onclick=\"return js_startgame();\"><em>Start Game</em></a></td> </tr>\n";'."\n";
+      }
+      echo '                           '."\n";
+      echo "\n";
+      echo '                           code += "</table>\n";'."\n";
+      echo '                        }else'."\n";
+      echo '                           window.location.href="?";'."\n";
+      echo "\n";
+      echo '                        document.getElementById("players").innerHTML = code;'."\n";
+      echo '                     }'."\n";
+      echo "\n";
+      if($host){
+         echo '                     function js_startgame(){'."\n";
+         echo '                        var i;'."\n";
+         echo '                        var turns = new Array();'."\n";
+         echo "\n";
+         echo '                        for(i=0; i<row; i++){'."\n";
+         echo '                           var tmp = parseInt(document.getElementById(\'player:\'+i+\'-turn\').value);'."\n";
+         echo '                           if(turns.indexOf(tmp-1) != -1){'."\n";
+         echo '                              alert(\'Only one player can play \'+(tmp==1? \'1st\' : (tmp==2? \'2nd\' : (tmp==3? \'3rd\' : tmp+\'th\')))+\'!\');'."\n";
+         echo '                              return false;'."\n";
+         echo '                           }else'."\n";
+         echo '                              turns.push(tmp-1);'."\n";
+         echo '                        }'."\n";
+         echo "\n";
+         echo '                        var str_turns = \'t[]=\'+(turns.join(\'&t[]=\'));'."\n";
+         echo "\n";
+         echo '                        window.onunload=\'\';'."\n";
+         echo '                        window.location.href=\'?start&\'+str_turns;'."\n";
+         echo '                     }'."\n";
+         echo "\n";
+      }
+      echo "\n";
+      echo '                     setInterval("call(\'?players\', displayPlayers);", 1000);'."\n";
+      echo '                                  call(\'?players\', displayPlayers); //Make an initial call'."\n";
+      echo '                     setInterval("call(\'?status'.($host? "" : "=notHost").'\', function(t){ if(t==\"game started\" || t==\"new host\" || t==\"dead\"){window.onunload=\'\'; window.location.href=\'?\';} });", 1000);'."\n";
+      echo '                  </script>'."\n";
+      echo '               </td>'."\n";
+      echo '            </tr>'."\n";
+      echo '         </table>'."\n";
+      echo "\n";
+      echo '      </td>'."\n";
+      echo '   </tr>'."\n";
+      echo '</table>'."\n";
+      echo "\n";
+      echo '</body>'."\n";
+      goto end;
+   }
+   //Game - Lobby
    echo '<head>'."\n";
    echo '   <title>Sea Chess Unbound</title>'."\n";
    echo "\n";
    echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=coordinates"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=maintenance"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=mark"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=winCheck"></script>'."\n";
+   echo "\n";
    echo '   <script type="text/javascript">'."\n";
-   echo '      observer = true;'."\n";
-   echo '      relativeAnnouncement = false;'."\n";
-   echo '      hasAI = false;'."\n";
-   echo '      inProgress = true;'."\n";
+   echo '      function createGame(){'."\n";
+   echo '         var gamename = "'. ((isset($_COOKIE['gamename']))? $_COOKIE['gamename'] : "New Game"). '";'."\n";
+   echo '         var rules    = "'. ((isset($_COOKIE['rules']))?    $_COOKIE['rules']    : "<3")      . '";'."\n";
    echo "\n";
-   echo '      marks = new Array("'.join('", "', explode(",", mysql_("SELECT Marks FROM scu_games WHERE Players like '%".$_REQUEST['observe']."%'"))).'")'."\n";
-   echo '      speed  = '.(isset($_REQUEST['speed'])? $_REQUEST['speed']*1000 : 2000).';'."\n";
+   echo '         window.location.href= "?create&game="+gamename+"&rules="+rules;'."\n";
+   echo '      }'."\n";
    echo '   </script>'."\n";
-   echo "\n";
-   echo '   <link rel="stylesheet" type="text/css" href="?css=game" />'."\n";
-   echo "\n";
    echo '</head>'."\n";
    echo '<body onunload="call(\'?clear\', true);">'."\n";
-   echo "\n";
-   echo '<table width="100%" height="100%">'."\n";
-   echo '   <tr>'."\n";
-   echo '      <td width="80%" height="90%" align="center" valign="middle">'."\n";
-   echo "\n";
-   echo '         <table id="game:grid" style="position:relative;">'."\n";
-   echo '            <tr id=":0">'."\n";
-   echo '               <td id="0:0" class="game cell"></td>'."\n";
-   echo '            </tr>'."\n";
-   echo '         </table>'."\n";
-   echo "\n";
-   echo '         <br />'."\n";
-   echo '         <div id="notice"></div>'."\n";
-   echo "\n";
-   echo '      </td>'."\n";
-   echo '   </tr>'."\n";
-   echo '   <tr>'."\n";
-   echo '      <td width="80%" height="10%" align="center" valign="bottom">'."\n";
-   echo "\n";
-
-   echo '         <a href="#"><em onclick="speed = Math.min( (speed -(-500)) , 10000 );">Slow Down</em></a>'."\n";
-
-   echo "\n";
-   echo ' &nbsp; &nbsp; '."\n";
-
-   echo '         <a href="#"><strong id="pause"'.
-        ' onclick="'.
-        '   if(this.innerHTML==\'Pause\'){'.
-        '      clearTimeout(reader);'.
-        '      this.innerHTML=\'Resume\';'.
-        '   }else{ '.
-        '      read();'.
-        '      this.innerHTML=\'Pause\';'.
-        '   }'.
-                  '">Pause</strong></a>'."\n";
-
-   echo "\n";
-   echo ' &nbsp; &nbsp; '."\n";
-
-   echo '         <a href="#"><em onclick="speed = Math.max( (speed - 500) , 100 );">Speed Up</em></a>'."\n";
-
-   echo "\n";
-   echo '         <br />'."\n";
-   echo ' &nbsp; '."\n";
-   echo ' <a href="#"'.
-        '  onclick="'.
-        '    if(!lastPlayed) return;'.
-        '    if( lastPlayed.id == \'0:0\') return;'.
-        '    lastPlayed.innerHTML = \'\';'.
-        '    lastPlayed.className = \'game cell available\';'.
-        '    clearTimeout(reader);'.
-        '    document.getElementById(\'pause\').innerHTML = \'Resume\';'.
-        '    turns   -= 2;'.
-        '    gameOver = false;'.
-        '    mark( call(\'?turn=\'+(turns-(-1))+\'&host='.$_REQUEST['observe'].'\', true) );'.
-        ' ">Back a Turn</a>'."\n";
-
-   echo "\n";
-   echo '         <br /><br />'."\n";
-   echo '         &nbsp; <big id="quit"><a onclick="call(\'?clear\', true);" href="?">Quit</a></big>'."\n";
-   echo "\n";
-   echo '         <script type="text/javascript">'."\n";
-   echo '            function read(){'."\n";
-   echo '               if((t = call("?turn="+(turns-(-1))+"&host='.$_REQUEST['observe'].'", true)) !="")'."\n";
-   echo '                  mark(t);'."\n";
-   echo "\n";
-   echo '               if(gameOver){'."\n";
-   echo '                  inProgress = false;'."\n";
-   echo '                  return "done";'."\n";
-   echo '               }'."\n";
-   echo "\n";
-   echo '               reader = setTimeout(arguments.callee, speed);'."\n";
-   echo '            } read();'."\n";
-   echo '         </script>'."\n";
-   echo "\n";
-   echo '      </td>'."\n";
-   echo '   </tr>'."\n";
-   echo '</table>'."\n";
-   echo "\n";
-   echo '</body>'."\n";
-   goto end;
-}
-//Game - Active
-if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is not NULL and Turns like '0:0%') AND Players like '%".session_id()."%'", true)>0){
-
-   echo '<head>'."\n";
-   echo '   <title>Sea Chess Unbound</title>'."\n";
-   echo "\n";
-   echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=coordinates"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=maintenance"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=mark"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=winCheck"></script>'."\n";
-   echo '   <script type="text/javascript" src="?js=highlight"></script>'."\n";
-   echo '   <script type="text/javascript">'."\n";
-   echo '      observer = false;'."\n";
-      $pl = mysql_("SELECT Players FROM scu_games WHERE Players LIKE '%".session_id()."%'");
-   echo '      relativeAnnouncement = '.((count(explode(",", $pl)) > count(array_unique(explode(",", $pl))))? 'false' : 'true').';'."\n";
-   echo '      hasAI = '.(stripos(" ".$pl, "AI:")? 'true' : 'false').';'."\n";
-   echo '      inProgress = true;'."\n";
-   echo "\n";
-   echo '      marks = new Array("'.join('", "', explode(",", mysql_("SELECT Marks FROM scu_games WHERE Players like '%".session_id()."%'"))).'")'."\n";
-   echo '      myTurn = '.(array_search(session_id(), explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".session_id()."%'")))+1)."\n";
-   echo "\n";
-   echo "\n";
-   echo '      function listen(){'."\n";
-   echo '         call("?turn="+(turns-(-1)), function(t){if(t!="") mark(t);}, true)'."\n";
-   echo "\n";
-   echo '         reader = setTimeout(arguments.callee, 1000);'."\n";
-   echo '      }'."\n";
-   echo "\n";
-   echo '      //Make the initial call'."\n";
-   echo '      window.onload = function(){'."\n";
-   echo '         while(inProgress)'."\n";
-   echo '            call("?turn="+(turns-(-1)), function(t){if(t!="") mark(t); else inProgress = false;}, true);'."\n";
-   echo "\n";
-   echo '         listen("for new turns");'."\n";
-   echo '      }'."\n";
-   echo '   </script>'."\n";
-   echo "\n";
-   echo '   <link rel="stylesheet" type="text/css" href="?css=game" />'."\n";
-   echo "\n";
-   echo '</head>'."\n";
-   echo '<body onunload="call(\'?clear\', true);">'."\n";
-   echo "\n";
-   echo '<table width="100%" height="100%">'."\n";
-   echo '   <tr>'."\n";
-   echo '      <td width="80%" height="95%" align="center" valign="middle">'."\n";
-   echo "\n";
-   echo '         <table id="game:grid">'."\n";
-   echo '            <tr id=":0">'."\n";
-   echo '               <td id="0:0" class="game cell"></td>'."\n";
-   echo '            </tr>'."\n";
-   echo '         </table>'."\n";
-   echo "\n";
-   echo '         <br />'."\n";
-   echo '         <div id="notice"></div>'."\n";
-   echo "\n";
-   echo '      </td>'."\n";
-   echo '   </tr>'."\n";
-   echo '   <tr>'."\n";
-   echo '      <td width="80%" height="5%" align="center" valign="bottom">'."\n";
-   echo "\n";
-   echo '         <br /><br /><br />'."\n";
-   echo '         <big id="quit"><a onclick="call(\'?clear&game\', true);" href="?">Quit</a></big>'."\n";
-   echo '         <div id="observe"></div>'."\n";
-   echo "\n";
-   echo '      </td>'."\n";
-   echo '   </tr>'."\n";
-   echo '</table>'."\n";
-   echo "\n";
-   echo '</body>'."\n";
-   goto end;
-}
-//Game - Created / Joined
-if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is NULL  or Turns not like '0:0%') AND Players like '%".session_id()."%'", true)>0){
-   echo '<head>'."\n";
-   echo '   <title>Sea Chess Unbound</title>'."\n";
-   echo "\n";
-   echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
-   echo '   <script type="text/javascript">call("?status", function(t){if(t=="dead")window.location.href="?";});</script>'."\n";
-   echo '</head>'."\n";
-   echo '<body onunload="call(\'?clear&game\', true);">'."\n";
    echo "\n";
    echo 'Welcome '.$_COOKIE['username']."\n";
-   echo '<br /><a href="?logout"><small>Logout</small></a>'."\n";
+   echo '<br /><a href="?logout=http://localhost/"><small>Logout</small></a>'."\n";
    echo "\n";
    echo '<table width="100%" style="margin-top: 50px;">'."\n";
    echo '   <tr>'."\n";
@@ -898,99 +1107,107 @@ if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is NULL  or Turns not lik
    echo '         <table rules="all" cellpadding="20">'."\n";
    echo '            <tr>'."\n";
    echo '               <td colspan="2" align="center">'."\n";
-
-   $host = (mysql_("Select GameName from scu_games where Players like '".session_id()."%'", true)>0);
-   if($host){
-      echo '                  <label title="The name by which the game will be seen">'."\n";
-      echo '                     <strong>Game Name</strong><br />'."\n";
-      echo '                     <input id="game:name" type="text" style="text-align:center" value="'.mysql_("Select GameName from scu_games where Players like '".session_id()."%'").'" onchange="call(\'?update&game=\'+this.value);" />'."\n";
-      echo '                  </label>'."\n";
-   }else{
-      echo '                  <strong>Game Name</strong><br />'."\n";
-      echo '                  <em id="game:name"><b>'.mysql_("Select GameName from scu_games where Players like '%".session_id()."%'").'</em>'."\n";
-   }
-
-   echo '<br /><br />'."\n";
-
-   if($host){
-      echo '                  <label title="Reserve: abija     Ban: !abija     Limit Player Count: <3  =2">'."\n";
-      echo '                     <strong>Player Rules</strong><br />'."\n";
-      echo '                     <input id="game:rules" type="text" style="text-align:center" value="'.mysql_("Select Rules from scu_games where Players like '".session_id()."%'").'" onchange="call(\'?update&rules=\'+this.value);" />'."\n";
-      echo '                  </label>'."\n";
-   }else{
-      echo '                  <strong>Player Rules</strong><br />'."\n";
-      echo '                  <em id="game:rules">'.mysql_("Select Rules from scu_games where Players like '%".session_id()."%'").'</em>'."\n";
-   }
-
+   echo '                  <input type="button" value="Create Game" onclick="createGame();" />'."\n";
    echo '               </td>'."\n";
    echo '            </tr>'."\n";
    echo '            <tr>'."\n";
-   echo '                <style type="text/css">small:hover{text-decoration:underline;}</style>'."\n";
-   echo '               <td colspan="2" align="center">'."\n";
-   echo '                  Players in game:'."\n";
-   echo '                  <div id="players"></div><br />'."\n";
+   echo '               <!-- Available Games -->'."\n";
+   echo '               <td align="center" valign="top" width="50%">'."\n";
+   echo '                  These are the curretly available games that<br /> you may <b>join and play</b>:'."\n";
+   echo '                  <br /><br />'."\n";
+   echo '                  <div id="availableGames"></div>'."\n";
+   echo "\n";
    echo '                  <script type="text/javascript">'."\n";
-   echo '                     function displayPlayers(t){'."\n";
+   echo '                     q_ag = true; //Query:AvailableGames'."\n";
+   echo '                     function displayAvailableGames(t){'."\n";
+   echo '                        if(t == q_ag) return true;'."\n";
+   echo '                        q_ag = t;'."\n";
+   echo "\n";
    echo '                        if(t!=""){'."\n";
-   echo '                           code  = "<table rules=\"rows\">\n";'."\n";
+   echo '                           code  = "<table width=\"100%\" cellspacing=\"20\">\n";'."\n";
    echo '                           code += "   <tr>\n";'."\n";
-   echo '                           code += "      <td width=\"70\"></td>\n";'."\n";
-   echo '                           code += "      <td width=\"150\"><strong>Nickname</strong></td>\n";'."\n";
-   echo '                           code += "      <td><strong>Options</strong></td>\n";'."\n";
-   echo '                           code += "   </tr>\n";'."\n\n";
-
-   echo '                           ts   = t.split(",");'."\n\n";
-   echo '                           host = ts.shift();'."\n\n";
-
-   echo '                           code += "   <tr>\n";'."\n";
-   echo '                           code += "      <td><em>Host</em>:</td>\n";'."\n";
-   echo '                           code += "      <td><strong>"+host.split("(")[1].split(")").join("")+"</strong></td>\n";'."\n";
-   if($host)
-      echo '                           code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
+   echo '                           code += "      <td align=\'left\'> <strong>Game Name</strong></td>\n";'."\n";
+   echo '                           code += "      <td align=\'center\'><strong>Players</strong></td>\n";'."\n";
+   echo '                           code += "      <td></td>\n";'."\n";
    echo '                           code += "   </tr>\n";'."\n";
    echo "\n";
-   echo '                           if(ts.length > 0 )'."\n";
-   echo '                              for(i in ts){'."\n";
-   echo '                                 code += "   <tr>\n";'."\n";
-   echo '                                 code += "      <td><em>Guest</em>:</td>\n";'."\n";
-   echo '                                 code += "      <td><strong>"+ts[i].split("(")[1].split(")").join("")+"</strong></td>\n";'."\n";
-   if($host){
-      echo '                                 code += "      <td><strong>\n";'."\n";
-      echo '                                 code += "         <a href=\"#\" onclick=\"call(\'?kick="+i+"\');//call(\'?kick="+ts[i].split("(")[0]+"\');\">Kick</a>\n";'."\n";
-      echo '                                 if(ts[i].split("(")[1].split(")").join("") != host.split("(")[1].split(")").join("") && ts[i].split("(")[1].split(")").join("").indexOf("AI")==-1){'."\n";
-      echo '                                    code += "         &nbsp;, &nbsp;\n";'."\n";
-      echo '                                    code += "         <a href=\"?\" onclick=\"window.onunload=\'\'; call(\'?promote="+ts[i].split("(")[0]+"\', true);\" title=\"Promote to host\">Promote</a>\n"'."\n";
-      echo '                                 }'."\n";
-      echo '                                 code += "      </strong></td>\n";'."\n";
-   }else{
-      echo '                                 if(ts[i].split("(")[1].split(")").join("") == "'.$_COOKIE['username'].'")'."\n";
-      echo '                                    code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
-   }
-   echo '                                 code += "   </tr>\n";'."\n";
+   echo '                           games = t.split("\n");'."\n";
+   echo '                           var i,j;'."\n";
+   echo '                           for(i=0; i<games.length; i++){'."\n";
+   echo '                              var tmp      = games[i].split("/");'."\n";
+   echo '                              var gamename = tmp[0];'."\n";
+   echo '                              var players  = tmp[1].split(",");'."\n";
+   echo "\n";
+   echo '                              code += "   <tr>\n";'."\n";
+   echo '                              code += "      <td>"+gamename+"</td>\n";'."\n";
+   echo '                              code += "      <td>";'."\n";
+   echo '                              for(j=0; j<players.length; j++){'."\n";
+   echo '                                 code += (j>0? " , " : "");'."\n";
+   echo '                                 code += players[j].split("(")[1].split(")")[0];'."\n";
    echo '                              }'."\n";
-
-   echo "\n";
-   echo '                              code += "   <tr> <td colspan=\"3\" align=\"center\">'.
-                                       ' <small onclick=\"call(\'?join='.session_id().'\');\">Add Self</small>'.
-                                       '&nbsp; &nbsp; &nbsp; &nbsp;'.
-                                       ' <small onclick=\"call(\'?join='.session_id().'&ai=easy\');\">Add AI</small>'.
-                                       ' </td> </tr>\n";'."\n";
-   echo "\n";
-
-   if($host)
-      echo '                           if(ts.length > 0) code += "   <tr> <td colspan=\"3\" align=\"center\"><a href=\"#\" onclick=\"window.onunload=\'\'; window.location.href=\'?start\';\"><em>Start Game</em></a></td> </tr>\n";'."\n";
-   echo '                           '."\n";
-   echo "\n";
+   echo '                              code += "      </td>\n";'."\n";
+   echo '                              code += "      <td> <a href=\"?join="+(players[0].split("(")[0])+"\">Join</a> </td>\n";'."\n";
+   echo '                              code += "   </tr>\n";'."\n";
+   echo '                           }'."\n";
    echo '                           code += "</table>\n";'."\n";
    echo '                        }else'."\n";
-   echo '                           window.location.href="?";'."\n";
+   echo '                           code = "Currently none";'."\n";
    echo "\n";
-   echo '                        document.getElementById("players").innerHTML = code;'."\n";
+   echo '                        document.getElementById("availableGames").innerHTML = code;'."\n";
    echo '                     }'."\n";
    echo "\n";
-   echo '                     setInterval("call(\'?players\', displayPlayers);", 1000);'."\n";
-   echo '                                  call(\'?players\', displayPlayers); //Make an initial call'."\n";
-   echo '                     setInterval("call(\'?status'.($host? "" : "=notHost").'\', function(t){ if(t==\"game started\" || t==\"new host\" || t==\"dead\"){window.onunload=\'\'; window.location.href=\'?\';} });", 1000);'."\n";
+   echo '                     setInterval("call(\'?availableGames\', displayAvailableGames);", 1000);'."\n";
+   echo '                                  call(\'?availableGames\', displayAvailableGames); // Make the initial call'."\n";
+   echo '                  </script>'."\n";
+   echo '               </td>'."\n";
+   echo "\n";
+   echo '               <td align="center" valign="top" width="50%">'."\n";
+   echo '                  These are the games that<br /> you can <b>observe</b>:'."\n";
+   echo '                  <br /><br />'."\n";
+   echo '                  <div id="playedGames"></div>'."\n";
+   echo "\n";
+   echo '                  <script type="text/javascript">'."\n";
+   echo '                     q_pg = true; //Query:PlayedGames'."\n";
+   echo "\n";
+   echo '                     function displayPlayedGames(t){'."\n";
+   echo '                        if(t == q_pg) return true;'."\n";
+   echo '                        q_pg = t;'."\n";
+   echo "\n";
+   echo '                        if(t!=""){'."\n";
+   echo '                           code  = "<table width=\"100%\" cellspacing=\"20\">\n";'."\n";
+   echo '                           code += "   <tr>\n";'."\n";
+   echo '                           code += "      <td align=\'left\'> <strong>Game Name</strong></td>\n";'."\n";
+   echo '                           code += "      <td align=\'center\'><strong>Players</strong></td>\n";'."\n";
+   echo '                           code += "      <td></td>\n";'."\n";
+   echo '                           code += "   </tr>\n";'."\n";
+   echo "\n";
+   echo '                           games = t.split("\n");'."\n";
+   echo '                           var i,j;'."\n";
+   echo '                           for(i=0; i<games.length; i++){'."\n";
+   echo '                              var tmp      = games[i].split("/");'."\n";
+   echo '                              var gamename = tmp[0];'."\n";
+   echo '                              var players  = tmp[1].split(",");'."\n";
+   echo "\n";
+   echo '                              code += "   <tr>\n";'."\n";
+   echo '                              code += "      <td>"+gamename+"</td>\n";'."\n";
+   echo '                              code += "      <td>";'."\n";
+   echo '                              for(j=0; j<players.length; j++){'."\n";
+   echo '                                 code += (j>0? " vs " : "");'."\n";
+   echo '                                 code += players[j].split("(")[1].split(")")[0];'."\n";
+   echo '                              }'."\n";
+   echo '                              code += "      </td>\n";'."\n";
+   echo '                              code += "      <td> <a href=\"?observe="+(players[0].split("(")[0])+"\">Observe</a> </td>\n";'."\n";
+   echo '                              code += "   </tr>\n";'."\n";
+   echo '                           }'."\n";
+   echo '                           code += "</table>\n";'."\n";
+   echo '                        }else'."\n";
+   echo '                           code = "Currently none";'."\n";
+   echo "\n";
+   echo '                        document.getElementById("playedGames").innerHTML = code;'."\n";
+   echo '                     }'."\n";
+   echo "\n";
+   echo '                     setInterval("call(\'?playedGames\', displayPlayedGames);", 1000);'."\n";
+   echo '                                  call(\'?playedGames\', displayPlayedGames); // Make the initial call'."\n";
    echo '                  </script>'."\n";
    echo '               </td>'."\n";
    echo '            </tr>'."\n";
@@ -1003,127 +1220,8 @@ if(mysql_("SELECT GameName FROM scu_games WHERE (Turns is NULL  or Turns not lik
    echo '</body>'."\n";
    goto end;
 }
-//Game - Lobby
-echo '<head>'."\n";
-echo '   <title>Sea Chess Unbound</title>'."\n";
-echo "\n";
-echo '   <script type="text/javascript" src="?js=call"></script>'."\n";
-echo "\n";
-echo '   <script type="text/javascript">'."\n";
-echo '      function createGame(){'."\n";
-echo '         var gamename = "'. ((isset($_COOKIE['gamename']))? $_COOKIE['gamename'] : "New Game"). '";'."\n";
-echo '         var rules    = "'. ((isset($_COOKIE['rules']))?    $_COOKIE['rules']    : "<3")      . '";'."\n";
-echo "\n";
-echo '         window.location.href= "?create&game="+gamename+"&rules="+rules;'."\n";
-echo '      }'."\n";
-echo '   </script>'."\n";
-echo '</head>'."\n";
-echo '<body onunload="call(\'?clear\', true);">'."\n";
-echo "\n";
-echo 'Welcome '.$_COOKIE['username']."\n";
-echo '<br /><a href="?logout=http://localhost/"><small>Logout</small></a>'."\n";
-echo "\n";
-echo '<table width="100%" style="margin-top: 50px;">'."\n";
-echo '   <tr>'."\n";
-echo '      <td width="80%" align="center">'."\n";
-echo "\n";
-echo '         <table rules="all" cellpadding="20">'."\n";
-echo '            <tr>'."\n";
-echo '               <td colspan="2" align="center">'."\n";
-echo '                  <input type="button" value="Create Game" onclick="createGame();" />'."\n";
-echo '               </td>'."\n";
-echo '            </tr>'."\n";
-echo '            <tr>'."\n";
-echo '               <!-- Availablr Games -->'."\n";
-echo '               <td align="center" valign="top" width="50%">'."\n";
-echo '                  These are the curretly available games that<br /> you may <b>join and play</b>:'."\n";
-echo '                  <br /><br />'."\n";
-echo '                  <div id="availableGames"></div>'."\n";
-echo "\n";
-echo '                  <script type="text/javascript">'."\n";
-echo '                     function displayAvailableGames(t){'."\n";
-echo '                        if(t!=""){'."\n";
-echo '                           code  = "<table width=\"100%\" cellspacing=\"20\">\n";'."\n";
-echo '                           code += "   <tr>\n";'."\n";
-echo '                           code += "      <td align=\'left\'> <strong>Game Name</strong></td>\n";'."\n";
-echo '                           code += "      <td align=\'center\'><strong>Host</strong></td>\n";'."\n";
-echo '                           code += "      <td></td>\n";'."\n";
-echo '                           code += "   </tr>\n";'."\n";
-echo "\n";
-echo '                           games = t.split(",");'."\n";
-echo '                           for(i in games){'."\n";
-echo '                              gamename  = games[i].split("/")[0];'."\n";
-echo '                              host      = games[i].split("/")[1];'."\n";
-echo '                              host_sid  = host.split("(")[0];'."\n";
-echo '                              host_nick = host.split("(")[1].split(")").join("");'."\n";
-echo "\n";
-echo '                              code += "   <tr>\n";'."\n";
-echo '                              code += "      <td>"+gamename+"</td>\n";'."\n";
-echo '                              code += "      <td>"+host_nick+"</td>\n";'."\n";
-echo '                              code += "      <td> <a href=\"?join="+host_sid+"\">Join</a> </td>\n";'."\n";
-echo '                              code += "   </tr>\n";'."\n";
-echo '                           }'."\n";
-echo '                           code += "</table>\n";'."\n";
-echo '                        }else'."\n";
-echo '                           code = "Currently none";'."\n";
-echo "\n";
-echo '                        document.getElementById("availableGames").innerHTML = code;'."\n";
-echo '                     }'."\n";
-echo "\n";
-echo '                     setInterval("call(\'?availableGames\', displayAvailableGames);", 1000);'."\n";
-echo '                                  call(\'?availableGames\', displayAvailableGames); // Make the initial call'."\n";
-echo '                  </script>'."\n";
-echo '               </td>'."\n";
-echo "\n";
-echo '               <td align="center" valign="top" width="50%">'."\n";
-echo '                  These are the games that<br /> you can <b>observe</b>:'."\n";
-echo '                  <br /><br />'."\n";
-echo '                  <div id="playedGames"></div>'."\n";
-echo "\n";
-echo '                  <script type="text/javascript">'."\n";
-echo '                     function displayPlayedGames(t){'."\n";
-echo '                        if(t!=""){'."\n";
-echo '                           code  = "<table width=\"100%\" cellspacing=\"20\">\n";'."\n";
-echo '                           code += "   <tr>\n";'."\n";
-echo '                           code += "      <td align=\'left\'> <strong>Game Name</strong></td>\n";'."\n";
-echo '                           code += "      <td align=\'center\'><strong>Host</strong></td>\n";'."\n";
-echo '                           code += "      <td></td>\n";'."\n";
-echo '                           code += "   </tr>\n";'."\n";
-echo "\n";
-echo '                           games = t.split(",");'."\n";
-echo '                           for(i in games){'."\n";
-echo '                              gamename  = games[i].split("/")[0];'."\n";
-echo '                              host      = games[i].split("/")[1];'."\n";
-echo '                              host_sid  = host.split("(")[0];'."\n";
-echo '                              host_nick = host.split("(")[1].split(")").join("");'."\n";
-echo "\n";
-echo '                              code += "   <tr>\n";'."\n";
-echo '                              code += "      <td>"+gamename+"</td>\n";'."\n";
-echo '                              code += "      <td>"+host_nick+"</td>\n";'."\n";
-echo '                              code += "      <td> <a href=\"?observe="+host_sid+"\">Observe</a> </td>\n";'."\n";
-echo '                              code += "   </tr>\n";'."\n";
-echo '                           }'."\n";
-echo '                           code += "</table>\n";'."\n";
-echo '                        }else'."\n";
-echo '                           code = "Currently none";'."\n";
-echo "\n";
-echo '                        document.getElementById("playedGames").innerHTML = code;'."\n";
-echo '                     }'."\n";
-echo "\n";
-echo '                     setInterval("call(\'?playedGames\', displayPlayedGames);", 1000);'."\n";
-echo '                                  call(\'?playedGames\', displayPlayedGames); // Make the initial call'."\n";
-echo '                  </script>'."\n";
-echo '               </td>'."\n";
-echo '            </tr>'."\n";
-echo '         </table>'."\n";
-echo "\n";
-echo '      </td>'."\n";
-echo '   </tr>'."\n";
-echo '</table>'."\n";
-echo "\n";
-echo '</body>'."\n";
-goto end;
 
-end:
-echo '</html>'."\n";
+end:{
+   echo '</html>'."\n";
+}
 ?>
