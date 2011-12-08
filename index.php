@@ -59,11 +59,14 @@ if(isset($_REQUEST['logout'])){
    exit;
 }
 if(isset($_REQUEST['create'], $_REQUEST['game'])){
-   if(mysql_("SELECT GameName FROM scu_games WHERE Players LIKE '%".session_id()."%'", true)==0)
-      mysql_("INSERT INTO scu_games (GameName, Rules, Players) VALUES('".$_REQUEST['game']."', '".$_REQUEST['rules']."', '".session_id()."')");
+   $game  = preg_replace("/[^a-zA-Zà-ÿÀ-ß0-9_ ]/", "", $_REQUEST['game']);
+   $rules = preg_replace("/[^a-zA-Zà-ÿÀ-ß0-9_ <>\=!]/", "", $_REQUEST['rules']);
 
-   setcookie("gamename", $_REQUEST['game'],  time()+ 30*24*60*60);
-   setcookie("rules",    $_REQUEST['rules'], time()+ 30*24*60*60);
+   if(mysql_("SELECT GameName FROM scu_games WHERE Players LIKE '%".session_id()."%'", true)==0)
+      mysql_("INSERT INTO scu_games (GameName, Rules, Players) VALUES('".$game."', '".$rules."', '".session_id()."')");
+
+   setcookie("gamename", $game,  time()+ 30*24*60*60);
+   setcookie("rules",    $rules, time()+ 30*24*60*60);
    echo '<script type="text/javascript">window.location.href="?"</script>';
    exit;
 }
@@ -104,31 +107,38 @@ if(isset($_REQUEST['playedGames'])){
    exit;
 }
 if(isset($_REQUEST['join'])){
-   $rules = mysql_("SELECT Rules FROM scu_games WHERE Players LIKE '".$_REQUEST['join']."%'");
+   $join  = preg_replace("/[^a-zA-Z0-9,-]/" , "", $_REQUEST['join']);
+   $add   = (!isset($_REQUEST['add']))? session_id() : preg_replace("/[^a-zA-Z0-9,-:]/", "", $_REQUEST['add']);
+
+   $rules = mysql_("SELECT Rules FROM scu_games WHERE Players LIKE '".$join."%'");
    $rule  = explode(" ", $rules);
 
    $allowed = true;
    foreach($rule as $specified){
       if(strlen($specified)==0)
          continue;
+
+      $sign = substr($specified, 0, 1);
+
       // If Slots are Players-Specific
-      if(substr($specified, 0, 1) != "!")
-         if(!in_array(substr($specified, 0, 1), array("<", "="))) // Exceptions
-            $allowed = false;
+      if(!in_array($sign, array("!", "<", "=")))
+         $allowed = false;
+
       // If You have a Player_Specific Slot
       if($specified == $_COOKIE['username']){
          $allowed = true;
          break;
       }
+
       // If You are explicitly banned
       if($specified == "!".$_COOKIE['username']){
          $allowed = false;
          break;
       }
+
       // If there is a player limit on the game
       if( in_array(substr($specified, 0, 1), array("<", "=")) ){
-         $sign = substr($specified, 0, 1);
-         $cur  = count(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".$_REQUEST['join']."%'")));
+         $cur  = count(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".$join."%'")));
          $goal = (int)substr($specified, 1);
 
          if( ($sign=="<" && $cur+1 >= $goal) || ($sign=="=" && $cur >= $goal) ){
@@ -138,24 +148,30 @@ if(isset($_REQUEST['join'])){
       }
    }
 
-   if(isset($_REQUEST['ai'])){
-      if(session_id() != $_REQUEST['join'])
+   if(stripos(" ".$add, "AI:")){
+      if(session_id() != $join)
          exit("Only the Host may add AI Players");
-
-      $ai = "AI:Easy"; //Change naming when other difficulties are available
+      else
+         if(stripos(" ".$add, "AI:Easy"))
+            $add = "AI:Easy";
+         else
+         if(stripos(" ".$add, "AI:Normal"))
+            $add = "AI:Normal";
+         else
+            $add = "AI:Hard";
    }
 
    $marks = array("X", "O", "Z", "V", "A", "H", "N", "P", "I", "J", "Y", "T", "D", "W", "S", "E", "K", "M", "R", "F", "Q", "B", "G", "L", "U", "C");
 
-   if($allowed)
-      mysql_("UPDATE scu_games SET".
-         " Players =CONCAT(Players, ',".(isset($_REQUEST['ai'])? $ai : session_id())."'),".
-         " Marks   =CONCAT(Marks, ',".$marks[count(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".$_REQUEST['join']."%'")))]."'), ".
-         " Sequence=CONCAT(Sequence, ',".(max(explode(",", mysql_("SELECT Sequence FROM scu_games WHERE Players like '%".$_REQUEST['join']."%'") ))+1)."') ".
-         "WHERE Players LIKE '".$_REQUEST['join']."%'"
-      ) or die(mysql_error());
-   else
-      echo '<script type="text/javascript">alert("Sorry, you are not allowed to this game.");</script>'."\n";
+   if(!$allowed)
+      exit('<script type="text/javascript">alert("Sorry, you are not allowed to this game.");</script>');
+
+   mysql_("UPDATE scu_games SET".
+      " Players =CONCAT(Players, ',".$add."'),".
+      " Marks   =CONCAT(Marks, ',".$marks[count(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players like '%".$join."%'")))]."'), ".
+      " Sequence=CONCAT(Sequence, ',".(max(explode(",", mysql_("SELECT Sequence FROM scu_games WHERE Players like '%".$join."%'") ))+1)."') ".
+      "WHERE Players LIKE '".$join."%'"
+   ) or die(mysql_error());
 
    echo '<script type="text/javascript">window.location.href="?";</script>';
    exit;
@@ -194,12 +210,14 @@ if(isset($_REQUEST['players'])){
 }
 if(isset($_REQUEST['update'])){
    if(isset($_REQUEST['game'])){
-      mysql_("UPDATE scu_games SET GameName='".$_REQUEST['game']."' WHERE Players LIKE '".session_id()."%'");
-      setcookie("gamename", $_REQUEST['game'],  time()+ 30*24*60*60);
+      $game = preg_replace("/[^a-zA-Zà-ÿÀ-ß0-9_ ]/", "", $_REQUEST['game']);
+      mysql_("UPDATE scu_games SET GameName='".$game."' WHERE Players LIKE '".session_id()."%'");
+      setcookie("gamename", $game,  time()+ 30*24*60*60);
    }
    if(isset($_REQUEST['rules'])){
-      mysql_("UPDATE scu_games SET Rules='".$_REQUEST['rules']."' WHERE Players LIKE '".session_id()."%'");
-      setcookie("rules", $_REQUEST['game'],  time()+ 30*24*60*60);
+      $rules = preg_replace("/[^a-zA-Zà-ÿÀ-ß0-9_ <>\=!]/", "", $_REQUEST['rules']);
+      mysql_("UPDATE scu_games SET Rules='".$rules."' WHERE Players LIKE '".session_id()."%'");
+      setcookie("rules", $rules,  time()+ 30*24*60*60);
    }
    if(isset($_REQUEST['sequence'])){
       $seq = explode(",", mysql_("SELECT Sequence FROM scu_games WHERE Players LIKE '".session_id()."%'"));
@@ -213,7 +231,7 @@ if(isset($_REQUEST['kick'])){
       mysql_("UPDATE scu_games SET Players=REPLACE(Players, ',".$_REQUEST['kick']."', ''), Marks=LEFT(Marks, LENGTH(Marks)-2), Sequence=LEFT(Sequence, LENGTH(Sequence)-2) WHERE Players LIKE '".session_id()."%'");
    else{
       $players = explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"));
-      unset($players[$_REQUEST['kick']+1]);
+      unset($players[$_REQUEST['kick']]);
       $players = join(",", $players);
 
       mysql_("UPDATE scu_games SET Players='".$players."', Marks=LEFT(Marks, LENGTH(Marks)-2) WHERE Players LIKE '".session_id()."%'");
@@ -230,7 +248,7 @@ if(isset($_REQUEST['start'])){
    if(isset($_REQUEST['t']) && is_array($_REQUEST['t'])){
       $plyrs   = explode(',', $players);
       $turns   = $_REQUEST['t'];
-      $players = '';
+      $players = array();
 
       asort($turns);
       foreach($turns as $t=>$v)
@@ -241,9 +259,11 @@ if(isset($_REQUEST['start'])){
    mysql_("UPDATE scu_games SET Turns='0:0', Players='".$players."' WHERE Players LIKE '".session_id().",%' AND Turns IS NULL");
 
    //If it's AI's turn next, perform the move
-   if(stripos(" ".next(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"))), "AI:")){
+   $next = next(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'")));
+   if(stripos(" ".$next, "AI:")){
       $GLOBALS['ai'] = true;
       $_REQUEST['m'] = "0:0";
+      $_REQUEST['d'] = (stripos(" ".$next, "AI:Easy")? 0 : (stripos(" ".$next, "AI:Hard")? 2 : 1));
 
       include "ai.php";
       mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$chosen."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$chosen."%'");
@@ -276,6 +296,7 @@ if(isset($_REQUEST['mark'])){
 
          $GLOBALS['ai'] = $n;
          $_REQUEST['m'] = mysql_("SELECT Turns FROM scu_games WHERE Players LIKE '%".session_id()."%'");
+         $_REQUEST['d'] = (stripos(" ".$players[$n], "AI:Easy")? 0 : (stripos(" ".$players[$n], "AI:Hard")? 2 : 1));
          unset($players);
 
          include "ai.php";
@@ -343,6 +364,10 @@ if(isset($_REQUEST['rename'], $_REQUEST['to'])){
    //Clean the variables from injection attempts
    $_REQUEST['to'] = preg_replace('/[^a-zA-Zà-ÿÀ-ß0-9_\ \-\.,\?!:\=]/', '', $_REQUEST['to']);
    $_REQUEST['rename'] = preg_replace('/[^a-zA-Zà-ÿÀ-ß0-9_\ \-\.,\?!:\=]/', '', $_REQUEST['rename']);
+
+   //If "renameTo" is an empty string it should keep the previous name
+   if(trim($_REQUEST['to'])=="" || strtolower(trim($_REQUEST['to']))=='null')
+      exit("Success");
 
    //Stop if such name already exists
    if(mysql_("SELECT GameName FROM scu_games WHERE GameName='".$_REQUEST['to']."'", true)){
@@ -698,6 +723,77 @@ if(isset($_REQUEST['js'])){
       echo '      elem.innerHTML = "";'."\n";
       echo '}'."\n";
    }
+   if($_REQUEST['js']=='coloring'){
+      echo '      _hMark = mark;'."\n";
+      echo '      moves_string = "";'."\n";
+      echo '      colored = new Array();'."\n";
+      echo '      mark = function(elem, myAttempt){'."\n";
+      echo '         if(_hMark(elem, myAttempt)){'."\n";
+      echo '            if(moves_string.length!=0)'."\n";
+      echo '               moves_string += ",";'."\n";
+      echo '            moves_string += (typeof elem == "string")? (elem) : (elem.id);'."\n";
+      echo '         }'."\n";
+      echo "\n";
+      echo '         call("ai.php?ann=dangerous&m="+moves_string, function(t){'."\n";
+      echo "\n";
+      echo '            var n  = (curTurn-2)'."\n";
+      echo '            var el = moves_string.split(",").reverse()[0];'."\n";
+      echo '            var _x = el.split(":")[0];'."\n";
+      echo '            var _y = el.split(":")[1];'."\n";
+      echo '            if(!colored[n]) colored[n] = new Array();'."\n";
+      echo "\n";
+      echo '            var m, p, c;'."\n";
+      echo '            for(m in colored)'."\n";
+      echo '               if(m != n)'."\n";
+      echo '                  for(p in colored[m]){'."\n";
+      echo '                     var stepX = ((colored[m][p][0].split(":")[0] - colored[m][p][1].split(":")[0]) != 0)? 1 : 0;'."\n";
+      echo '                     var stepY = ((colored[m][p][0].split(":")[1] - colored[m][p][1].split(":")[1]) != 0)? 1 : 0;'."\n";
+      echo "\n";
+      echo '                     for(c in colored[m][p]){'."\n";
+      echo '                        var x_ = colored[m][p][c].split(":")[0];'."\n";
+      echo '                        var y_ = colored[m][p][c].split(":")[1];'."\n";
+      echo "\n";
+      echo '                        if( Math.abs( Math.abs(x_) - Math.abs(_x) ) == stepX  &&  Math.abs( Math.abs(y_) - Math.abs(_y) ) == stepY){'."\n";
+      echo '                           colored[n].push(colored[m][p]);'."\n";
+      echo '                           delete colored[m][p];'."\n";
+      echo '                           break;'."\n";
+      echo '                        }'."\n";
+      echo '                     }'."\n";
+      echo '                  }'."\n";
+      echo "\n";
+      echo '            var i, j;'."\n";
+      echo '            for(i in colored[n]){'."\n";
+      echo '               for(j in colored[n][i]){'."\n";
+      echo '                  var ele = document.getElementById(colored[n][i][j]);'."\n";
+      echo '                  ele.className = ele.className.replace(" dangerous", "");'."\n";
+      echo '               }'."\n";
+      echo '               delete colored[n][i]'."\n";
+      echo '            }'."\n";
+      echo "\n";
+      echo '            if(t=="") return false;'."\n";
+      echo "\n";
+      echo '            colored[curTurn-2] = new Array();'."\n";
+      echo '            var dl = t.split("\n");'."\n";
+      echo "\n";
+      echo '            var i;'."\n";
+      echo '            for(i=0; i<dl.length; i++){'."\n";
+      echo '               if(dl[i].length == 0) continue;'."\n";
+      echo "\n";
+      echo '               colored[curTurn-2][i] = new Array();'."\n";
+      echo '               var dc = dl[i].split(",");'."\n";
+      echo "\n";
+      echo '               for(j=0; j<dc.length; j++){'."\n";
+      echo '                  var elem = document.getElementById( dc[j] );'."\n";
+//      echo '                  if(elem.className.indexOf("dangerous") == -1)'."\n";
+      echo '                     elem.className += " dangerous";'."\n";
+      echo "\n";
+      echo '                  colored[curTurn-2][i][j] = dc[j]'."\n";
+      echo '               }'."\n";
+      echo "\n";
+      echo '            }'."\n";
+      echo '         });'."\n";
+      echo '      }'."\n";
+   }
    exit;
 }
 
@@ -722,10 +818,27 @@ if(isset($_REQUEST['css'])){
       echo '      }'."\n";
       echo '      .player3{'."\n";
       echo '         color: green;'."\n";
-      echo '      }'."\n";
+      echo '      }'."\n";;
       echo '      .player4{'."\n";
-      echo '         color: yellow;'."\n";
+      echo '         color: orange;'."\n";
       echo '      }'."\n";
+      echo "\n";
+      echo '      .dangerous{'."\n";
+      echo '         font-size: large;'."\n";
+      echo '         font-weight: bold;'."\n";
+      echo '      }'."\n";
+//      echo '      .player1.dangerous{'."\n";
+//      echo '         background-color: #ccccff;'."\n";
+//      echo '      }'."\n";
+//      echo '      .player2.dangerous{'."\n";
+//      echo '         background-color: #ffcccc;'."\n";
+//      echo '      }'."\n";
+//      echo '      .player3.dangerous{'."\n";
+//      echo '         background-color: lightgreen;'."\n";
+//      echo '      }'."\n";
+//      echo '      .player4.dangerous{'."\n";
+//      echo '         background-color: yellow;'."\n";
+//      echo '      }'."\n";
       echo '      .last{'."\n";
       echo '         border:2px solid #d4d4d4;'."\n";
       //echo '         background-color: #d4d4d4;'."\n";
@@ -755,6 +868,7 @@ body:{
       echo '   <script type="text/javascript" src="?js=maintenance"></script>'."\n";
       echo '   <script type="text/javascript" src="?js=mark"></script>'."\n";
       echo '   <script type="text/javascript" src="?js=winCheck"></script>'."\n";
+      echo '   <script type="text/javascript" src="?js=coloring"></script>'."\n";
       echo '   <script type="text/javascript">'."\n";
       echo '      observer = true;'."\n";
       echo '      relativeAnnouncement = false;'."\n";
@@ -989,52 +1103,72 @@ body:{
       echo '                           code += "      <td width=\"150\"><strong>Nickname</strong></td>\n";'."\n";
       echo '                           code += "      <td><strong>Options</strong></td>\n";'."\n";
       echo '                           code += "   </tr>\n";'."\n\n";
-
-      echo '                           var ts   = t.split(",");'."\n\n";
-      echo '                           var host = ts.shift();'."\n\n";
-      echo '                               row = 0;'."\n";
-
-      echo '                           code += "   <tr>\n";'."\n";
-//      echo '                           code += "      <td><em>Host</em>:</td>\n";'."\n";
-      echo '                           code += "      <td> <input type=\"text\" id=\"player:"+(row++)+"-turn\" value=\""+host.split("{")[1].split("}")[0]+"\"'.($host? ' onchange=\"call(\'?update&sequence&set="+row+"&to=\'+this.value);\"' : ' readonly').' style=\"width:25px;text-align:center;\" /> </td>\n";'."\n";
-      echo '                           code += "      <td><strong>"+host.split("(")[1].split(")")[0]+"</strong></td>\n";'."\n";
-      if($host)
-         echo '                           code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
-      echo '                           code += "   </tr>\n";'."\n";
       echo "\n";
-      echo '                           if(ts.length > 0 )'."\n";
-      echo '                              for(i in ts){'."\n";
-      echo '                                 code += "   <tr>\n";'."\n";
-//      echo '                                 code += "      <td><em>Guest</em>:</td>\n";'."\n";
-      echo '                                 code += "      <td> <input type=\"text\" id=\"player:"+(row++)+"-turn\" value=\""+ts[i].split("{")[1].split("}")[0]+"\"'.($host? ' onchange=\"call(\'?update&sequence&set="+row+"&to=\'+this.value);\"' : ' readonly').' style=\"width:25px;text-align:center;\" /> </td>\n";'."\n";
-      echo '                                 code += "      <td><strong>"+ts[i].split("(")[1].split(")")[0]+"</strong></td>\n";'."\n";
+      echo '                           var ts = t.split(/\(|\)|\[|\]|\{|\}|,/);'."\n";
+      echo '                           var players  = new Array();'."\n";
+      echo "\n";
+      echo '                           for(i=0; i<ts.length; i+=7)'."\n";
+      echo '                              players[i/7] = ts.slice(i, (i+6));'."\n";
+      echo '                           //player[j] :  {[0]=>SID , [1]=>Nick , [3]=>Mark, [5]=>Turn}'."\n";
+      echo "\n";
+      echo '                           row = 0; //Needs to be global for reference in js_startgame()'."\n";
+      echo '                           var i;'."\n";
+      echo "\n";
+      echo '                           for(i=0; i<players.length; i++){'."\n";
+      echo '                              code += "   <tr>\n";'."\n";
+//      echo '                              code += "      <td><em>"+(i==0? "Host" : "Guest")+"</em>:</td>\n";'."\n";
+      echo '                              code += "      <td> <input type=\"text\" id=\"player:"+(row++)+"-turn\" value=\""+players[i][5]+"\"'.($host? ' onchange=\"call(\'?update&sequence&set="+row+"&to=\'+this.value);\"' : ' readonly').' style=\"width:25px;text-align:center;\" /> </td>\n";'."\n";
+      echo '                              code += "      <td><strong>"+players[i][1]+"</strong></td>\n";'."\n";
       if($host){
+         echo '                              if(i!=0){'."\n";
          echo '                                 code += "      <td><strong>\n";'."\n";
-         echo '                                 code += "         <a href=\"#\" onclick=\"call(\'?kick="+i+"\');//call(\'?kick="+ts[i].split("(")[0]+"\');\">Kick</a>\n";'."\n";
-         echo '                                 if(ts[i].split("(")[1].split(")").join("") != host.split("(")[1].split(")").join("") && ts[i].split("(")[1].split(")").join("").indexOf("AI")==-1){'."\n";
+         echo '                                 code += "         <a href=\"#\" onclick=\"call(\'?kick="+i+"\');//call(\'?kick="+players[i][0]+"\');\">Kick</a>\n";'."\n";
+         echo '                                 if(players[i][1] != players[0][1] && players[i][1].indexOf("AI")==-1){'."\n";
          echo '                                    code += "         &nbsp;, &nbsp;\n";'."\n";
-         echo '                                    code += "         <a href=\"?\" onclick=\"window.onunload=\'\'; call(\'?promote="+ts[i].split("(")[0]+"\', true);\" title=\"Promote to host\">Promote</a>\n"'."\n";
+         echo '                                    code += "         <a href=\"?\" onclick=\"window.onunload=\'\'; call(\'?promote="+players[i][0]+"\', true);\" title=\"Promote to host\">Promote</a>\n"'."\n";
          echo '                                 }'."\n";
-         echo '                                 code += "      </strong></td>\n";'."\n";
+         echo '                                    code += "      </strong></td>\n";'."\n";
+         echo '                              }else'."\n";
+         echo '                                 code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
       }else{
-         echo '                                 if(ts[i].split("(")[1].split(")")[0] == "'.$_COOKIE['username'].'")'."\n";
-         echo '                                    code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
+         echo '                              if(players[i][1] == "'.$_COOKIE['username'].'")'."\n";
+         echo '                                 code += "      <td><strong><a href=\"?\">Leave</a></strong></td>\n";'."\n";
       }
-      echo '                                 code += "   </tr>\n";'."\n";
-      echo '                              }'."\n";
+      echo '                              code += "   </tr>\n";'."\n";
+      echo '                           }'."\n";
 
       if($host){
          echo "\n";
-         echo '                              code += "   <tr> <td colspan=\"4\" align=\"center\">'.
-                                             ' <small onclick=\"call(\'?join='.session_id().'\');\">Add Self</small>'.
-                                             '&nbsp; &nbsp; &nbsp; &nbsp;'.
-                                             ' <small onclick=\"call(\'?join='.session_id().'&ai=easy\');\">Add AI</small>'.
-                                             ' </td> </tr>\n";'."\n";
+         echo '                        code += "   <tr> <td colspan=\"4\" align=\"center\">";'."\n";
+         echo '                        code += "      <small>Add</small>";'."\n";
+         echo '                        code += "      <select onchange=\"if(this.value != \'\') call(\'?join='.session_id().'&add=\'+this.value);\" style=\"border:0px;\">";'."\n";
+         echo "\n";
+         echo '                        var i;'."\n";
+         echo '                        var showed = new Array();'."\n";
+         echo "\n";
+         echo '                        showed.push("AI:Easy");'."\n";
+         echo '                        showed.push("AI:Normal");'."\n";
+         echo '                        showed.push("AI:Hard");'."\n";
+         echo "\n";
+         echo '                        code += "         <option value=\"\" selected>a player</option>";'."\n";
+         echo "\n";
+         echo '                        for(i=0; i<players.length; i++)'."\n";
+         echo '                           if(showed.indexOf(players[i][0]) == -1){'."\n";
+         echo '                              code += "         <option value=\""+players[i][0]+"\">"+players[i][1]+"</option>";'."\n";
+         echo '                              showed.push(players[i][0]);'."\n";
+         echo '                           }'."\n";
+         echo "\n";
+         echo '                        code += "         <option value=\"\">-------------</option>";'."\n";
+         echo '                        code += "         <option value=\"AI:Easy\">AI:Easy</option>";'."\n";
+         echo '                        code += "         <option value=\"AI:Normal\">AI:Normal</option>";'."\n";
+         echo '                        code += "         <option value=\"AI:Hard\">AI:Hard</option>";'."\n";
+         echo '                        code += "      </select>";'."\n";
+         echo '                     code += "   </td> </tr>";'."\n";
          echo "\n";
 
-         echo '                           if(ts.length > 0) code += "   <tr> <td colspan=\"4\" align=\"center\"><a href=\"#\" onclick=\"return js_startgame();\"><em>Start Game</em></a></td> </tr>\n";'."\n";
+         echo '                           if(players.length > 1) code += "   <tr> <td colspan=\"4\" align=\"center\"><a href=\"#\" onclick=\"return js_startgame();\"><em>Start Game</em></a></td> </tr>\n";'."\n";
       }
-      echo '                           '."\n";
+      echo "\n";
       echo "\n";
       echo '                           code += "</table>\n";'."\n";
       echo '                        }else'."\n";

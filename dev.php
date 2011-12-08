@@ -1424,6 +1424,41 @@ function winCheck(elem, mark){
             return false;
       }
 
+      // Extend the mark function to highlight dangerous lines
+//      _hMark = mark;
+//      var colored = new Array();
+//      mark = function(elem, myAttempt){
+//         _hMark(elem, myAttempt);
+//
+//         var en = players[curTurn-1];
+//         var elnb = en.longest().each(
+//            function(item){
+//               return ( item.gaps.length<2 && ( ((item.length==3) && (!item.blocked)) || ((item.length==4) && !item.locked) )  );
+//            }
+//         , true);
+//
+//         var ec = colored[en.turn];
+//         if(ec){
+//            var i;
+//            for(i=0; i<ec.length; i++){
+//               document.getElementById(ec[i]).className = document.getElementById(ec[i]).className.split(" dangerous").join("");
+//               delete ec[i];
+//            }
+//         }else
+//            ec = colored[en.turn] = new Array();
+//
+//         var j;
+//         for(j=0; j<elnb.length; j++){
+//            var n;
+//            for(n=0; n<elnb[j].cells.length; n++){
+//               document.getElementById( elnb[j].cells[n].id ).className += " dangerous";
+//
+//               if(ec.indexOf(elnb[j].cells[n].id) == -1)
+//                  ec.push( elnb[j].cells[n].id );
+//            }
+//         }
+//      }
+
    </script>
 
    <style type="text/css">

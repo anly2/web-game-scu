@@ -1,4 +1,7 @@
 <?php
+//Admirations: 0:0,1:0,-1:1,1:1,1:-1,2:-2,0:-1,2:-1,0:-2,0:1,-1:2,2:0,2:-3,-1:0,0:-3,0:-4,1:-3,-1:-3,-1:-1,-2:0,-2:-1,-3:-1,-2:-2,-1:-2,2:-4,3:-5,3:-3,4:-3,3:-2,4:-4,1:-4,4:-1,4:-2,1:-5,2:-6,2:-5,4:-5,5:-2,3:-4,1:-2,0:-5,-1:-6,2:1,-1:3,0:2,-2:2,1:-6,-3:1,-4:0,-3:0,-3:-2,-1:-5,-1:-4,-2:-3,-3:-3,-4:-4,-4:-2,5:-1,-5:-1,-6:0,-5:-2,-6:-2,-4:-1,-4:1,-5:0,-5:1,-6:1,-7:2,-5:-3,-5:-4,-3:3,-6:-4,-3:-4,-6:-3,-6:-1,-7:0,-4:-3,-2:-5,-7:-1,-8:-1,-3:-5,-3:-6,-7:-2,-2:-6,-4:-6,-2:-7,-4:-5,-2:-4
+
+initiation:{
    if(!isset($_REQUEST['m'])) die("No Moves given to the AI!");
 
    $moves = array_flip(explode(",", $_REQUEST['m']));
@@ -28,8 +31,9 @@
                echo $v."\n";
             }
          }
+}
 
-
+core:{
 class player{
    public $turn, $mark, $moves = array();
 
@@ -458,9 +462,14 @@ class cell{
 $players = array();
 foreach(${player::$vMarks} as $m)
    $players[] = new player($m);
+}
 
 
-
+rate:
+define('easy',   0, true);
+define('normal', 1, true);
+define('hard',   2, true);
+$difficulty = isset($_REQUEST['d'])? (int) $_REQUEST['d'] : normal;
 
 define('all',        0, true);
 define('aggressive', 1, true);
@@ -469,7 +478,9 @@ define('mixed',      3, true);
 $announce = isset($_REQUEST['ann']);
 
 function rate($cell, $player, $r=0){
-   $aggr = $def = $mixed = 0;
+   $aggr   = $def   = $mixed = 0;
+   $m_aggr = $m_def = 1;
+   global $difficulty;
    global $announce;
 
    if(!is_string($cell))
@@ -479,19 +490,14 @@ function rate($cell, $player, $r=0){
          return false;
 
    // Get the Enemy's Longest and Not Blocked (aka dangerous) lines
-      //Performance leak! This only needs to be executed once, not for every available rated
    static $elnb;
    if(!isset($elnb)){
       $elnb = $player->enemy()->longer(3);
       foreach($elnb as $k=>$v){
-         if(($v->length == 3) && (!$v->blocked))
-            continue;
-
-         if(($v->length == 4) && (!$v->locked) )
-            continue;
-
-         array_splice($elnb, $k, 1);
+         if(($v->locked) || (($v->length < 4) && ($v->blocked)))
+            unset($elnb[$k]);
       }
+      $elnb = array_merge($elnb);
 if($announce) echo "<pre>",c_dump($elnb),"</pre><hr />\n";
    }
 
@@ -499,7 +505,7 @@ if($announce) echo "<pre>",c_dump($elnb),"</pre><hr />\n";
    $GLOBALS['moves'][$cell] = $player->mark;
    $rated = new cell($cell);
 
-if($announce) echo "Cell: ".$cell."<br />\n<br />\n"; $a_ = $aggr; $d_ = $def;
+               if($announce) echo "Cell: ".$cell."<br />\n<br />\n"; $a_ = $aggr; $d_ = $def;
 
    //Survival
       ////Length is double because of directional difference for identical lines
@@ -507,20 +513,22 @@ if($announce) echo "Cell: ".$cell."<br />\n<br />\n"; $a_ = $aggr; $d_ = $def;
    //If there are more than 1 dangerous lines
    if(count($elnb)>(1)){
       // Play aggressive
+//      if($difficulty == normal) $m_def -= 0.5;
 
       // Add points only if rated is part of a line longer than 3 (enemy needs to be block)
       if(count($rated->longest(4))>0)
          $aggr += 5;
-if($announce) echo "Survival: a".($aggr-$a_)."<br />\n"; $a_ = $aggr;
+               if($announce) echo "Survival: a".($aggr-$a_)."<br />\n"; $a_ = $aggr;
    }else
    //If there is only 1 dangerous line
    if(count($elnb)==(1)){
       // Play defensive
+//      if($difficulty == normal) $m_aggr -= 0.5;
 
       // Add points if rated is blocking that dangerous line
       if( ( !($elnb[0]->length == 4 && !is_null($elnb[0]->gap)) && ($elnb[0]->next->id == $rated->id  ||  $elnb[0]->prev->id == $rated->id)) || (!is_null($elnb[0]->gap) && $elnb[0]->gap->id == $rated->id))
          $def += ($elnb[0]->length == 4)? 15 : 6;
-if($announce) echo "Survival: d".($def-$d_)."<br />\n"; $d_ = $def;
+               if($announce) echo "Survival: d".($def-$d_)."<br />\n"; $d_ = $def;
    }
 
 
@@ -539,21 +547,22 @@ if($announce) echo "Survival: d".($def-$d_)."<br />\n"; $d_ = $def;
       if(count($d4)>0)
          $aggr += 10;
    }
-if($announce) echo "Execute: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
+               if($announce) echo "Execute: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add a point for each open corridor (has potential)
       $cor = $rated->openedCorridors();
    $aggr += floor(count($cor)/3); // )/2);
-if($announce) echo "Potential: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
+               if($announce) echo "Potential: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add a point for each marked cell that combines with rated and the line is not blocked
       $combos = 0;
+      if($difficulty != easy)
       foreach($cor as $v){
          if(!$v->blocked && $v->length > 1)
             $combos += $v->length;
       }
    $aggr += floor($combos/2);
-if($announce) echo "Combine: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
+               if($announce) echo "Combine: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add two extra points if rated forms a dangerous line (unblocked line longer than 2 cells)
       $longest = $rated->longest(3);
@@ -563,7 +572,7 @@ if($announce) echo "Combine: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
       }
    if(count($longest)>0)
       $aggr += 2;
-if($announce) echo "Endanger: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
+               if($announce) echo "Endanger: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
    // Add three extra points if rated forms two+ dangerous lines
       $long = $rated->longer(3);
@@ -578,9 +587,9 @@ if($announce) echo "Endanger: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
          if($line->length > 3)
             $aggr += 4;
    }
-if($announce) echo "Unstoppable: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
+               if($announce) echo "Unstoppable: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
 
-if($announce) echo "<br />\n";
+               if($announce) echo "<br />\n";
 
 
    //Defensive
@@ -588,12 +597,12 @@ if($announce) echo "<br />\n";
    // Add a point if an enemy cell is seen (blocks the corridor / can eventually block)
    if($rated->sees($player->enemy()))
       $def  += 1;
-if($announce) echo "Sees: ".($def-$d_)."<br />\n"; $d_ = $def;
+               if($announce) echo "Sees: ".($def-$d_)."<br />\n"; $d_ = $def;
 
    // Add a point if an enemy cell is adjacent to the rated
    if($rated->adj($player->enemy()))
       $def  += 1;
-if($announce) echo "Touches: ".($def-$d_)."<br />\n"; $d_ = $def;
+               if($announce) echo "Touches: ".($def-$d_)."<br />\n"; $d_ = $def;
 
 
    // Add 5 points if it prevents the forming of 2 dangerous lines
@@ -610,15 +619,15 @@ if($announce) echo "Touches: ".($def-$d_)."<br />\n"; $d_ = $def;
 
       $rated->owner = $player;
       $GLOBALS['moves'][$cell] = $player->mark;
-if($announce) echo "Precognition: ".($def-$d_)."<br />\n"; $d_ = $def;
+               if($announce) echo "Precognition: ".($def-$d_)."<br />\n"; $d_ = $def;
 
-if($announce) echo "<br />\n";
-if($announce) echo "Total: a$a_ d$d_ m".($a_+$d_)."<hr />\n";
+               if($announce) echo "<br />\n";
+               if($announce) echo "Total: a$a_ d$d_ m".($a_+$d_)."<hr />\n";
 
    //Mixed
 
    // Mix the two values. A more complex formula can be used if needed
-   $mixed = $aggr + $def;
+   $mixed = $m_aggr*$aggr + $m_def*$def;
 
 
    //Remove the temporal ownership
@@ -628,42 +637,70 @@ if($announce) echo "Total: a$a_ d$d_ m".($a_+$d_)."<hr />\n";
    if($r==0 || $r==1) $rating[] = $aggr;
    if($r==0 || $r==2) $rating[] = $def;
    if($r==0 || $r==3) $rating[] = $mixed;
-   if(!isset($rating)) return false;
-   if(count($rating)==1) $rating = $rating[0];
+
+   if(!isset($rating))
+      return false;
+   if(count($rating)==1)
+      $rating = $rating[0];
+
    return $rating;
 }
 
+partial:{
+   // Only part of the capabilities are needed
+   if(isset($_REQUEST['ann']) && $_REQUEST['ann'] == 'dangerous'){
+      $player = $players[ ((count(explode(",", $_REQUEST['m'])))%count($marks)) ];
 
-//Collect Availables
-$avs = array();
-foreach($moves as $id=>$mark)
-   for($i=-1;$i<=1;$i++)
-      for($j=-1;$j<=1;$j++){
-         list($x, $y) = explode(":", $id);
-
-         $t = ($x+$i).":".($y+$j);
-         if(!isset($moves[$t]) && !in_array($t, $avs))
-            $avs[] = $t;
+      $elnb = $player->enemy()->longer(3);
+      foreach($elnb as $k=>$v){
+         if(($v->locked) || (($v->length < 4) && ($v->blocked)))
+            unset($elnb[$k]);
       }
+      $elnb = array_merge($elnb);
 
-//Rate every Available
-foreach($avs as $k=>$a)
-   $arr[$a] = rate($a, $players[ ((count(explode(",", $_REQUEST['m'])))%count($marks)) ],MIXED);
+      foreach($elnb as $l){
+         $initial = 0;
+         foreach($l->cells as $c)
+            echo ((!($initial++))? "" : ",") . $c->id;
 
-//Sort them by highest rating
-arsort($arr, SORT_NUMERIC);
+         echo "\n";
+      }
+      exit;
+   }
+}
 
-//Fetch only the Top Rated
-$topRated = array();
-foreach($arr as $id=>$r)
-   if($r >= reset($arr))
-      $topRated[] = $id;
+ellection:{
+   //Collect Availables
+   $avs = array();
+   foreach($moves as $id=>$mark)
+      for($i=-1;$i<=1;$i++)
+         for($j=-1;$j<=1;$j++){
+            list($x, $y) = explode(":", $id);
 
-//Make the decision
-$chosen = $topRated[array_rand($topRated)];
+            $t = ($x+$i).":".($y+$j);
+            if(!isset($moves[$t]) && !in_array($t, $avs))
+               $avs[] = $t;
+         }
+
+   //Rate every Available
+   foreach($avs as $k=>$a)
+      $arr[$a] = rate($a, $players[ ((count(explode(",", $_REQUEST['m'])))%count($marks)) ],MIXED);
+
+   //Sort them by highest rating
+   arsort($arr, SORT_NUMERIC);
+
+   //Fetch only the Top Rated
+   $topRated = array();
+   foreach($arr as $id=>$r)
+      if($r >= reset($arr))
+         $topRated[] = $id;
+
+   //Make the decision
+   $chosen = $topRated[array_rand($topRated)];
+   }
 
 
-//AI:Act!
-if(!isset($GLOBALS['ai']))
-   echo $chosen;
+   //AI:Act!
+   if(!isset($GLOBALS['ai']))
+      echo $chosen;
 ?>
