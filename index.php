@@ -285,18 +285,29 @@ if(isset($_REQUEST['mark'])){
 
    mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$_REQUEST['mark']."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$_REQUEST['mark']."%'");
    echo "Success";
-   flush();
 
-
-   //If it's AI's turn next, perform the move
+   //If it's AI's turn next
    if(stripos(" ".$game['Players'], "AI:")){
       $n = ($onTurn+1) % count(explode(",", $game['Marks']));
 
-      if(stripos(" ".$players[$n], "AI:")){
+      if(stripos(" ".$players[$n], "AI:"))
+         echo ';AI next';
+   }
+   exit;
+}
+if(isset($_REQUEST['ai'])){
+   $game    = mysql_("SELECT Players, Turns, Marks FROM scu_games WHERE Players like '%".session_id()."%'");
 
-         $GLOBALS['ai'] = $n;
-         $_REQUEST['m'] = mysql_("SELECT Turns FROM scu_games WHERE Players LIKE '%".session_id()."%'");
-         $_REQUEST['d'] = (stripos(" ".$players[$n], "AI:Easy")? 0 : (stripos(" ".$players[$n], "AI:Hard")? 2 : 1));
+   //If there's an AI actually playing
+   if(stripos(" ".$game['Players'], "AI:")){
+      $onTurn  = (count(explode(",", $game['Turns'])) % count(explode(",", $game['Marks'])));
+      $players = explode(",", $game['Players']);
+
+      //If the AI is on turn
+      if(stripos(" ".$players[$onTurn], "AI:")){
+         $GLOBALS['ai'] = $onTurn;
+         $_REQUEST['m'] = $game['Turns'];
+         $_REQUEST['d'] = (stripos(" ".$players[$onTurn], "AI:Easy")? 0 : (stripos(" ".$players[$onTurn], "AI:Hard")? 2 : 1));
          unset($players);
 
          include "ai.php";
@@ -564,8 +575,9 @@ if(isset($_REQUEST['js'])){
       echo '   if(typeof elem == "string") elem = document.getElementById(elem);'."\n";
       echo "\n";
       echo '   // If not in progress and call did not returned "Success", stop'."\n";
-      echo '   if(hasAI && !observer) document.getElementById("notice").innerHTML = "<big>Loading...</big>";'."\n";
-      echo '   if(!(inProgress || call("?mark="+elem.id, true) == "Success")) return false;'."\n";
+      echo '   if(!(inProgress || (cr = call("?mark="+elem.id, true)).indexOf("Success")!=-1)) return false;'."\n";
+      echo "\n";
+      echo '   if(typeof cr != \'undefined\' && cr.indexOf("AI next")!=-1) call("?ai");'."\n";
       echo "\n";
       echo '   // Maintain the Game Grid to proper size'."\n";
       echo '   maintenance(elem);'."\n";
