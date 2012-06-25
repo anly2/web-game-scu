@@ -67,6 +67,7 @@ if(isset($_REQUEST['create'], $_REQUEST['game'])){
 
    setcookie("gamename", $game,  time()+ 30*24*60*60);
    setcookie("rules",    $rules, time()+ 30*24*60*60);
+
    echo '<script type="text/javascript">window.location.href="?"</script>';
    exit;
 }
@@ -259,8 +260,9 @@ if(isset($_REQUEST['start'])){
    mysql_("UPDATE scu_games SET Turns='0:0', Players='".$players."' WHERE Players LIKE '".session_id().",%' AND Turns IS NULL");
 
    //If it's AI's turn next, perform the move
-   $next = next(explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'")));
-   if(stripos(" ".$next, "AI:")){
+   $plyrs = explode(",", mysql_("SELECT Players FROM scu_games WHERE Players LIKE '".session_id()."%'"));
+
+   while( ($next = next($plyrs)) && stripos(" ".$next, "AI:")){
       $GLOBALS['ai'] = true;
       $_REQUEST['m'] = "0:0";
       $_REQUEST['d'] = (stripos(" ".$next, "AI:Easy")? 0 : (stripos(" ".$next, "AI:Hard")? 2 : 1));
@@ -301,20 +303,22 @@ if(isset($_REQUEST['ai'])){
    //If there's an AI actually playing
    if(stripos(" ".$game['Players'], "AI:")){
       $onTurn  = (count(explode(",", $game['Turns'])) % count(explode(",", $game['Marks'])));
-      $players = explode(",", $game['Players']);
+      $players_ = explode(",", $game['Players']);
 
       //If the AI is on turn
-      if(stripos(" ".$players[$onTurn], "AI:")){
+      while(stripos(" ".$players_[$onTurn], "AI:")){
          $GLOBALS['ai'] = $onTurn;
          $_REQUEST['m'] = $game['Turns'];
-         $_REQUEST['d'] = (stripos(" ".$players[$onTurn], "AI:Easy")? 0 : (stripos(" ".$players[$onTurn], "AI:Hard")? 2 : 1));
-         unset($players);
+         $_REQUEST['d'] = (stripos(" ".$players_[$onTurn], "AI:Easy")? 0 : (stripos(" ".$players_[$onTurn], "AI:Hard")? 2 : 1));
 
          include "ai.php";
+         echo $chosen."\n";
          mysql_("UPDATE scu_games SET Turns=CONCAT(Turns, ',', '".$chosen."') WHERE Players like '%".session_id()."%' AND Turns not like '%,".$chosen."%'");
+
+         $onTurn = ($onTurn+1)%count($players_);
+         $game['Turns'] .= ",".$chosen;
       }
    }
-
    exit;
 }
 if(isset($_REQUEST['turn'])){
@@ -1096,7 +1100,7 @@ body:{
       echo '               </td>'."\n";
       echo '            </tr>'."\n";
       echo '            <tr>'."\n";
-      echo '                <style type="text/css">small:hover{text-decoration:underline;}</style>'."\n";
+      echo '                <style type="text/css">small:hover{cursor: default; text-decoration:underline;} select.subtle{border: 1px solid transparent;} select.subtle:hover{border: 1px solid #7F9DB9;}</style>'."\n";
       echo '               <td colspan="2" align="center">'."\n";
       echo '                  Players in game:'."\n";
       echo '                  <div id="players"></div><br />'."\n";
@@ -1153,7 +1157,7 @@ body:{
          echo "\n";
          echo '                        code += "   <tr> <td colspan=\"4\" align=\"center\">";'."\n";
          echo '                        code += "      <small>Add</small>";'."\n";
-         echo '                        code += "      <select onchange=\"if(this.value != \'\') call(\'?join='.session_id().'&add=\'+this.value);\" style=\"border:0px;\">";'."\n";
+         echo '                        code += "      <select class=\"subtle\" onchange=\"if(this.value != \'\') call(\'?join='.session_id().'&add=\'+this.value);\">";'."\n";
          echo "\n";
          echo '                        var i;'."\n";
          echo '                        var showed = new Array();'."\n";

@@ -1,9 +1,35 @@
 <?php
-// MySQL variables
+/////////////////////
+// MySQL variables //
+/////////////////////
+
 $mysql_host = 'localhost';
 $mysql_user = 'root';
 $mysql_pass = 'ju44rff';
 $mysql_db   = 'game';
+
+////////////////////////
+// Database structure //
+////////////////////////
+
+//database game:
+//   scu_users:
+//      SID varchar(20)
+//      Name varchar(100)
+//
+//   scu_games:
+//      GameName varchar(50)
+//      Players varchar(269)
+//      Turns varchar(300) default(NULL)
+//      Rules varchar(50)
+//      Marks varchar(19) default(X)
+//      Sequence varchar(29) default(1)
+
+
+
+//////////////////////////////
+// DO NOT CHANGE BELOW THIS //
+//////////////////////////////
 
 define("MYSQL_TABLE", 4, true); // Determine if a single row should be an array or a table (x2 array)
 $mysql_wait = 0;
