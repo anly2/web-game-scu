@@ -22,6 +22,7 @@ $mysql_db   = 'game';
 //      Players varchar(269)
 //      Turns varchar(300) default(NULL)
 //      Rules varchar(50)
+//      Private tinyint(1) default(0)
 //      Marks varchar(19) default(X)
 //      Sequence varchar(29) default(1)
 

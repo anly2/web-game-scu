@@ -1,5 +1,6 @@
 <?php
 //Admirations: 0:0,1:0,-1:1,1:1,1:-1,2:-2,0:-1,2:-1,0:-2,0:1,-1:2,2:0,2:-3,-1:0,0:-3,0:-4,1:-3,-1:-3,-1:-1,-2:0,-2:-1,-3:-1,-2:-2,-1:-2,2:-4,3:-5,3:-3,4:-3,3:-2,4:-4,1:-4,4:-1,4:-2,1:-5,2:-6,2:-5,4:-5,5:-2,3:-4,1:-2,0:-5,-1:-6,2:1,-1:3,0:2,-2:2,1:-6,-3:1,-4:0,-3:0,-3:-2,-1:-5,-1:-4,-2:-3,-3:-3,-4:-4,-4:-2,5:-1,-5:-1,-6:0,-5:-2,-6:-2,-4:-1,-4:1,-5:0,-5:1,-6:1,-7:2,-5:-3,-5:-4,-3:3,-6:-4,-3:-4,-6:-3,-6:-1,-7:0,-4:-3,-2:-5,-7:-1,-8:-1,-3:-5,-3:-6,-7:-2,-2:-6,-4:-6,-2:-7,-4:-5,-2:-4
+//Could have won: 0:0,-1:-1,1:-1,0:-2,-1:1,2:-2,1:0,1:-2,-1:-2,-2:0,1:-3,-2:-1,0:-1,-2:-3,-2:-2,-3:-2,2:1,3:2,0:1,3:1,0:2,0:3,2:0,3:0,1:1,3:-1,-2:1,3:-2
 
 initiation:{
    if(!isset($_REQUEST['m'])) die("No Moves given to the AI!");
@@ -49,6 +50,7 @@ if(!class_exists('player')){
             if($mark == $m)
                $this->moves[] = $id; // = new cell($id);
 
+         $this->uid = count(self::$players);
          self::$players[] = $this;
       }
 
@@ -56,6 +58,10 @@ if(!class_exists('player')){
       public  static  function count(){ return count(self::$players); }
       public function enemy($step=1){
          return self::$players[ ($this->turn + $step) % self::count() ];
+      }
+
+      public function enemies(){
+         return new playerCollection( array_splice(self::$players, $this->uid, 1) );
       }
 
       public function longest($minLength = 1, $allViable = false){
@@ -107,6 +113,26 @@ if(!class_exists('player')){
 
       function __toString(){
          return $this->mark;
+      }
+
+      public function clear(){
+         return self::$players = array();
+      }
+   }
+
+   class playerCollection{
+      public $players;
+
+      function __construct($arr){
+         $this->players = $arr;
+      }
+
+      public function longer($than = 1){
+         $arr = array();
+         foreach($this->players as $pl){
+            $arr = array_merge($arr, $pl->longer($than));
+         }
+         return $arr;
       }
    }
 }
@@ -467,7 +493,7 @@ if(!class_exists('cell')){
    }
 }
 
-$players = array();
+$players = player::clear(); //array();
 foreach(${player::$vMarks} as $m)
    $players[] = new player($m);
 }
@@ -565,10 +591,12 @@ if(!function_exists('rate')){
 
       // Add a point for each marked cell that combines with rated and the line is not blocked
          $combos = 0;
-         if($difficulty != easy)
-         foreach($cor as $v){
-            if(!$v->blocked && $v->length > 1)
-               $combos += $v->length;
+         if($difficulty != easy){
+            $cor = array_merge($cor, $rated->longer(4));
+            foreach($cor as $v){
+               if( (!$v->blocked && $v->length > 1) || (!$v->locked && $v->length >= 4) )
+                  $combos += $v->length;
+            }
          }
       $aggr += floor($combos/2);
                   if($announce) echo "Combine: ".($aggr-$a_)."<br />\n"; $a_ = $aggr;
