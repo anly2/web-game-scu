@@ -1,0 +1,51 @@
+### Sea Chess Unbound ###
+#This is a version file
+#  used for dynamically updating links so that people know there's something new
+#  it also contains the changelogs for a given project
+
+
+version 0
+    - Basic functionality  added for not more than two players
+
+version 1
+    - Major improvements to the engine
+    - Cleaned some bugs and protected against most cheats
+    - Observe functionality greatly improved
+
+version 2
+    - Add support for more than two players
+    - Player names and winners are now noted in the record
+    - Added player colors
+
+version 3
+    - Added Artificial Intelligence (AI / Bot)
+    - Hosts can now append AI or Self in their game. Thus they can host a game and play with a computer or against themselves
+    - When you request a record of a game you can now name that record. Before it automatically took the name of the game
+    - Hosts can now assign custom turns. This way it's not necessary to be the host to play first.
+    - Dangerous lines are highlighted in observer mode. This will make it a little bit more obvious why one plays there
+
+version 3.1
+    - The annoying "Loading" is no longer seen while waiting for the AI
+
+version 3.2
+    - Hosts can now choose to make their games private.
+         + Private games are not seen in the lobby but CAN still be joined
+         + When the host makes the game private he will be shown a link which he can use to invite other players. That share link is basically the one you WOULD get from the lobby
+    - Leaving a game is improved and it will not destroy the game anymore. This will allow players to rewatch and record the game even though their opponent has left
+         + When a player leaves only his session_id is cleared, unlike before where the entire game entry was deleted
+         + Recording and Rewatching when the opponent leaves is possible but the links are NOT provided. If you know how to achieve this manually, fine, otherwise we stick with the idea that the leaver does not need to be shamed further with a record
+    - A new feature was added. Players can now rewatch a game via the observer mode which will provide them with a breakdown of what had happened.
+         + This will allow players too see the highlighted danger lines which they might have missed and understand why they lost or why the other player played the way he did.
+         + After Rewatching a game you may record it but it will not be visible (will be private)! If you wanted a record you should have clicked "Record"!
+    - The AI has been slightly changed.
+        + The "Aggressive::Combo" Section during evaluation is improved to consider dangerous5
+        + The start of a game will now trigger all of the AIs into playing, instead of just the first sequent. This, however, is rather useless because they still don't play as they should in the game.
+        + The AI is not made to play versus multiple opponents. If you still want to play like that you can fix the bugs associated by calling /SCU/?ai PARALLEL to your game tab.
+
+version 3.3
+    - The repeated queries to the server for new turns is now a bit more optimized.
+        + It will start of with a 1000ms interval and slowly adjust itself to the average play speed. For example, if the opponent thinks a lot on his moves then the interval between intervals will gradually increase to, say, 5500ms.
+        + Likewise, the interval can also get shorter if the opponent plays faster. This will be the case with AIs
+    - The game is now available on most mobile browsers.
+        + The repeated queries to the server for new turns is disabled in the mobile version.
+        + Players will have to manually refresh the page to view new turns.
