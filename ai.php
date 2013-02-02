@@ -562,7 +562,7 @@ if(!function_exists('rate')){
 
          // Add points if rated is blocking that dangerous line
          if( ( !($elnb[0]->length == 4 && !is_null($elnb[0]->gap)) && ($elnb[0]->next->id == $rated->id  ||  $elnb[0]->prev->id == $rated->id)) || (!is_null($elnb[0]->gap) && $elnb[0]->gap->id == $rated->id))
-            $def += ($elnb[0]->length == 4)? 15 : 6;
+            $def += ($elnb[0]->length == 4)? 17 : 6;
                   if($announce) echo "Survival: d".($def-$d_)."<br />\n"; $d_ = $def;
       }
 
