@@ -859,13 +859,16 @@ css:
 if(isset($_REQUEST['css'])){
    if($_REQUEST['css']=='game'){
       echo '      .game.cell{'."\n";
-      echo '         width:20px;'."\n";
-      echo '         height:20px;'."\n";
-      echo '         text-align:center;'."\n";
-      echo '         font-size:10;'."\n";
+      //echo '         display: inline-block;'."\n";
+      echo '         width: 18px;'."\n";
+      echo '         height: 24px;'."\n";
+      echo '         text-align: center;'."\n";
+      echo '         font-size: 10px;'."\n";
+      echo '         border: 2px solid transparent;'."\n";
       echo '      }'."\n";
-      echo '      .available{'."\n";
+      echo '      .game.cell.available{'."\n";
       echo '         background-color: #f9f9f9;'."\n";
+      echo '         border-color: #f9f9f9;'."\n";
       echo '      }'."\n";
       echo '      .player1{'."\n";
       echo '         color: blue;'."\n";
@@ -896,7 +899,7 @@ if(isset($_REQUEST['css'])){
 //      echo '      .player4.dangerous{'."\n";
 //      echo '         background-color: yellow;'."\n";
 //      echo '      }'."\n";
-      echo '      .last{'."\n";
+      echo '      .game.cell.last{'."\n";
       echo '         border:2px solid #d4d4d4;'."\n";
       //echo '         background-color: #d4d4d4;'."\n";
       echo '      }'."\n";
